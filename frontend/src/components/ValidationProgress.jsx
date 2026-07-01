@@ -29,7 +29,6 @@ export default function ValidationProgress({ useAi }) {
 
   const stages = useAi ? [...STAGES_BASE, STAGE_AI, STAGE_FINAL] : [...STAGES_BASE, STAGE_FINAL]
   const stage = stages.find(s => pct < s.until) ?? stages[stages.length - 1]
-  const slow = elapsed > 15
 
   return (
     <div className="card p-6">
@@ -53,19 +52,6 @@ export default function ValidationProgress({ useAi }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-
-      {slow && (
-        <p className="mt-3 text-xs text-amber-600 flex items-start gap-1.5">
-          <svg className="w-4 h-4 shrink-0 mt-px" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span>
-            Still working{useAi ? ' — AI checks can take a little longer' : ''}. The first run after
-            a period of inactivity can be slower while the server wakes up.
-          </span>
-        </p>
-      )}
     </div>
   )
 }
