@@ -1,0 +1,15 @@
+# FastAPI + server
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
+# Auth
+python-jose[cryptography]>=3.3.0
+
+# AI providers (keys supplied via env vars: OPENAI_API_KEY / ANTHROPIC_API_KEY)
+anthropic>=0.40
+openai>=1.40
+
+# Excel readers used by the validator
+xlrd>=2.0
+openpyxl>=3.1

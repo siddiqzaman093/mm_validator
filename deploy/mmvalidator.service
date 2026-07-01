@@ -1,0 +1,31 @@
+##
+## systemd service for MM Validator FastAPI backend
+## Place at: /etc/systemd/system/mmvalidator.service
+## Then: sudo systemctl daemon-reload
+##       sudo systemctl enable mmvalidator
+##       sudo systemctl start mmvalidator
+##
+
+[Unit]
+Description=SAP MM Validator FastAPI Backend
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/mmvalidator/backend
+
+# ---- Credentials & secrets — edit these ----
+Environment="MM_USERNAME=admin"
+Environment="MM_PASSWORD=CHANGE_ME_STRONG_PASSWORD"
+Environment="JWT_SECRET=CHANGE_ME_RANDOM_SECRET_STRING"
+Environment="ANTHROPIC_API_KEY="
+# Restrict CORS to your domain in production:
+# Environment="ALLOWED_ORIGINS=https://mmvalidator.example.com"
+
+ExecStart=/opt/mmvalidator/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 2
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
