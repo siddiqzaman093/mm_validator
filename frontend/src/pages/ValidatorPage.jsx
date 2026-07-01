@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { validateFile } from '../api'
 import { AI_PROVIDER, AI_MODEL, AI_MODEL_LABEL } from '../aiConfig'
+import ValidationProgress from '../components/ValidationProgress'
 import KPICards from '../components/KPICards'
 import FindingsTable from '../components/FindingsTable'
 import FindingsByCategory from '../components/FindingsByCategory'
@@ -203,6 +204,9 @@ export default function ValidatorPage() {
           </div>
         </div>
       </div>
+
+      {/* Progress indicator while validating */}
+      {loading && <ValidationProgress useAi={useAi} />}
 
       {/* Error banner */}
       {error && (
