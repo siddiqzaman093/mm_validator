@@ -29,6 +29,7 @@ if _BACKEND_DIR not in sys.path:
     sys.path.append(_BACKEND_DIR)        # local modules (e.g. `auth`)
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -154,7 +155,12 @@ async def validate(
     effective_key = api_key.strip() or os.environ.get(env_var, "").strip()
 
     try:
-        report = run_validation(
+        # Run the blocking validation (Excel parsing + any OpenAI call) in a
+        # worker thread so it never blocks the event loop — otherwise a single
+        # in-flight validation would freeze /api/health and Render would kill the
+        # instance (HTTP health check timeout) mid-request.
+        report = await run_in_threadpool(
+            run_validation,
             contents,
             file_name=file.filename,
             lookup_bytes=lookup_bytes,
