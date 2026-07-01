@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { validateFile } from '../api'
+import { useState, useRef, useEffect } from 'react'
+import { validateFile, pingHealth } from '../api'
 import { AI_PROVIDER, AI_MODEL, AI_MODEL_LABEL } from '../aiConfig'
 import ValidationProgress from '../components/ValidationProgress'
 import KPICards from '../components/KPICards'
@@ -87,6 +87,14 @@ export default function ValidatorPage() {
   const [error, setError]     = useState('')
   const [report, setReport]   = useState(null)
   const [activeTab, setTab]   = useState(0)
+
+  // Warm up the backend when the page opens, and keep it awake during the
+  // session, so the free-tier server isn't cold when Run Validation is clicked.
+  useEffect(() => {
+    pingHealth()
+    const id = setInterval(pingHealth, 10 * 60 * 1000)  // every 10 min
+    return () => clearInterval(id)
+  }, [])
 
   async function handleValidate() {
     if (!file || !lookupFile) return

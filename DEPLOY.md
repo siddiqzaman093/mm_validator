@@ -90,6 +90,19 @@ Toggle **AI Warning Flags** to exercise the OpenAI path (uses the server key).
 
 ---
 
+## Keeping the backend awake (free tier)
+
+Render's free plan sleeps the service after ~15 min idle, so the first request
+then cold-starts (~30–50s). Two layers mitigate this:
+
+- **Built in:** the app pings `/api/health` when it loads and every 10 min while
+  open, so the server is usually warm by the time someone clicks *Run Validation*
+  during an active session.
+- **24/7 (optional):** add a free uptime monitor — e.g. **UptimeRobot** or
+  **cron-job.org** — that GETs `https://<your-backend>.onrender.com/api/health`
+  every 10 minutes. That keeps it from ever sleeping. (Or upgrade the Render
+  instance to a paid, always-on plan.)
+
 ## Updating later
 
 Push to `main` → **both** Vercel and Render auto-deploy from the same repo.

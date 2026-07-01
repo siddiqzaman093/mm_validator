@@ -18,6 +18,13 @@ client.interceptors.request.use((config) => {
   return config
 })
 
+// ---- Warm-up / keep-alive ----
+// Fire-and-forget ping to wake (and keep awake) the free-tier backend so it
+// isn't cold-starting when the user actually runs a validation.
+export async function pingHealth() {
+  try { await client.get('/api/health') } catch { /* server may be waking — ignore */ }
+}
+
 // ---- Auth ----
 export async function login(username, password) {
   const form = new URLSearchParams({ username, password })
