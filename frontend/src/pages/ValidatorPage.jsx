@@ -280,7 +280,7 @@ export default function ValidatorPage() {
                       </button>
                       <button
                         onClick={() => {
-                          const cols = ['severity','ai_generated','category','sheet','row','field','sap_field','value','message','rule_id']
+                          const cols = ['severity','ai_generated','category','sheet','material','row','field','sap_field','value','message','rule_id']
                           const rows = report.findings.map(f => cols.map(c => JSON.stringify(f[c] ?? '')).join(','))
                           const csv  = [cols.join(','), ...rows].join('\n')
                           downloadBlob(csv, `${report.file_name}.findings.csv`, 'text/csv')

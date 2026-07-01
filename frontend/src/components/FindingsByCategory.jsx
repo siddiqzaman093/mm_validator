@@ -33,7 +33,7 @@ function CategoryGroup({ category, findings }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-white border-b border-slate-100">
-                {['Sev', 'Sheet', 'Row', 'Field', 'Message'].map(h => (
+                {['Sev', 'Sheet', 'Material', 'Row', 'Field', 'Message'].map(h => (
                   <th key={h} className="px-3 py-2 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
                     {h}
                   </th>
@@ -45,6 +45,7 @@ function CategoryGroup({ category, findings }) {
                 <tr key={i} className="hover:bg-slate-50 transition-colors">
                   <td className="px-3 py-2"><SeverityBadge severity={f.severity} /></td>
                   <td className="px-3 py-2 text-xs font-mono text-slate-500">{f.sheet}</td>
+                  <td className="px-3 py-2 text-xs font-mono text-slate-700 whitespace-nowrap">{f.material || '—'}</td>
                   <td className="px-3 py-2 text-xs text-slate-500">{f.row ?? '—'}</td>
                   <td className="px-3 py-2 text-xs font-mono text-slate-600">{f.field ?? '—'}</td>
                   <td className="px-3 py-2 text-xs text-slate-700">{f.message}</td>

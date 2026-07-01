@@ -19,7 +19,7 @@ export default function FindingsTable({ findings }) {
     return findings.filter(f =>
       sevFilter.includes(f.severity) &&
       activeCats.includes(f.category) &&
-      (!needle || [f.message, f.field, f.sap_field, String(f.value ?? '')]
+      (!needle || [f.message, f.field, f.sap_field, f.material, String(f.value ?? '')]
         .some(s => (s || '').toLowerCase().includes(needle)))
     )
   }, [findings, sevFilter, catFilter, categories, search])
@@ -92,7 +92,7 @@ export default function FindingsTable({ findings }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              {['Severity', 'Category', 'Sheet', 'Row', 'Field', 'SAP Field', 'Value', 'Message'].map(h => (
+              {['Severity', 'Category', 'Sheet', 'Material', 'Row', 'Field', 'SAP Field', 'Value', 'Message'].map(h => (
                 <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">
                   {h}
                 </th>
@@ -102,7 +102,7 @@ export default function FindingsTable({ findings }) {
           <tbody className="divide-y divide-slate-100">
             {paged.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-sm">
+                <td colSpan={9} className="px-4 py-8 text-center text-slate-400 text-sm">
                   No findings match your filters.
                 </td>
               </tr>
@@ -111,6 +111,7 @@ export default function FindingsTable({ findings }) {
                 <td className="px-3 py-2"><SeverityBadge severity={f.severity} /></td>
                 <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">{f.category}</td>
                 <td className="px-3 py-2 text-xs font-mono text-slate-500">{f.sheet}</td>
+                <td className="px-3 py-2 text-xs font-mono text-slate-700 whitespace-nowrap">{f.material || '—'}</td>
                 <td className="px-3 py-2 text-xs text-slate-500">{f.row ?? '—'}</td>
                 <td className="px-3 py-2 text-xs font-mono text-slate-600">{f.field ?? '—'}</td>
                 <td className="px-3 py-2 text-xs font-mono text-slate-500">{f.sap_field ?? '—'}</td>
