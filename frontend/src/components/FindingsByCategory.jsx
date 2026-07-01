@@ -2,9 +2,7 @@ import { useState } from 'react'
 import SeverityBadge from './SeverityBadge'
 
 function CategoryGroup({ category, findings }) {
-  const [open, setOpen] = useState(
-    category.startsWith('AI/') || category.startsWith('Schema/')
-  )
+  const [open, setOpen] = useState(false)
   const errorCount   = findings.filter(f => f.severity === 'error').length
   const warningCount = findings.filter(f => f.severity === 'warning').length
 
