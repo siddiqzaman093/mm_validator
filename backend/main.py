@@ -51,12 +51,15 @@ app = FastAPI(
     version="1.1.0",
 )
 
-# Allow the React frontend (any origin during dev; restrict in production via
-# the ALLOWED_ORIGINS env var, e.g. "https://mmvalidator.example.com")
-_allowed = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+# Allow the React frontend. ALLOWED_ORIGINS lists explicit origins
+# (comma-separated); blank/unset falls back to "*" so a wiped env var can't
+# take the app down. The regex additionally admits every Vercel deployment of
+# the frontend (production, previews, branch URLs), which plain origins miss.
+_allowed = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_allowed,
+    allow_origins=_allowed or ["*"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

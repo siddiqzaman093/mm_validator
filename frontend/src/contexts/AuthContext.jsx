@@ -12,7 +12,10 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (username, password) => {
     setError('')
     try {
-      const data = await apiLogin(username, password)
+      // Trim stray whitespace (mobile keyboards often append a space).
+      // Stored passwords never have edge whitespace — env values are stripped
+      // server-side — so trimming the typed value is always safe.
+      const data = await apiLogin(username.trim(), (password ?? '').trim())
       setToken(data.access_token)
       setUser(data.username || username)
       setName(data.name || '')
