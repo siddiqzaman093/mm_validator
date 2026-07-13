@@ -71,6 +71,7 @@ class ValidationReport:
     findings: list[Finding] = field(default_factory=list)
     sheets_seen: list[str] = field(default_factory=list)
     rows_total: int = 0
+    materials_total: int = 0
     ai_calls: int = 0
     ai_input_tokens: int = 0
     ai_output_tokens: int = 0
@@ -89,6 +90,7 @@ class ValidationReport:
         return {
             "file_name": self.file_name,
             "rows_total": self.rows_total,
+            "materials_total": self.materials_total,
             "sheets_seen": self.sheets_seen,
             "counts": self.counts(),
             "ai_calls": self.ai_calls,

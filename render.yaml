@@ -21,6 +21,27 @@ services:
         sync: false
       - key: MM01_PASSWORD       # mm01 password — set in dashboard
         sync: false
+      # Named users (login id = e-mail address; env var = mailbox name):
+      - key: SIDDIQ_UZZAMAN_PASSWORD     # siddiq.uzzaman@arete-global.com (Admin)
+        sync: false
+      - key: ISMAIL_SHAIK_PASSWORD       # ismail.shaik@arete-global.com
+        sync: false
+      - key: MOHAMED_OMRAN_PASSWORD      # mohamed.omran@arete-global.com
+        sync: false
+      - key: MOHAMED_OSAMA_PASSWORD      # mohamed.osama@arete-global.com
+        sync: false
+      - key: YAHYA_OMAR_PASSWORD         # yahya.omar@arete-global.com
+        sync: false
+      - key: MOHAMED_ELEWA_PASSWORD      # mohamed.elewa@arete-global.com
+        sync: false
+      - key: ABDELAZIZ_NASSAR_PASSWORD   # abdelaziz.nassar@arete-global.com
+        sync: false
+      - key: ABDELRHAMAN_OSAMA_PASSWORD  # abdelrhaman.osama@arete-global.com
+        sync: false
+      - key: DATABASE_URL        # OPTIONAL — Postgres URL (Neon/Supabase/Render) for a
+        sync: false              # durable usage log; without it, SQLite resets on deploy
+      - key: AI_PRICING_JSON     # OPTIONAL — per-model token prices, e.g.
+        sync: false              # {"gpt-5.4": [1.25, 10.0]} (USD per 1M in/out tokens)
       - key: OPENAI_API_KEY      # your ROTATED OpenAI key — set in dashboard
         sync: false
       - key: ALLOWED_ORIGINS     # your Vercel URL, e.g. https://mm-validator.vercel.app

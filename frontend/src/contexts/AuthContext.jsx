@@ -5,6 +5,7 @@ const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
+  const [name, setName] = useState(null)
   const [role, setRole] = useState(null)
   const [error, setError] = useState('')
 
@@ -14,6 +15,7 @@ export function AuthProvider({ children }) {
       const data = await apiLogin(username, password)
       setToken(data.access_token)
       setUser(data.username || username)
+      setName(data.name || '')
       setRole(data.role || 'user')
       return true
     } catch (err) {
@@ -26,12 +28,13 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     clearToken()
     setUser(null)
+    setName(null)
     setRole(null)
     setError('')
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, role, error, login, logout }}>
+    <AuthContext.Provider value={{ user, name, role, error, login, logout }}>
       {children}
     </AuthContext.Provider>
   )

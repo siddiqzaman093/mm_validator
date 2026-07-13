@@ -4,6 +4,7 @@ SAP MM Validator — FastAPI backend.
 Endpoints:
   POST /api/auth/login    → { access_token, token_type }
   POST /api/validate      → ValidationReport JSON (includes html_report field)
+  GET  /api/admin/usage   → usage log / dashboard data (admin only)
   GET  /api/health        → { status: "ok" }
 
 This backend imports the *canonical* validator package that lives at the project
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 
 # ---------------------------------------------------------------------------
 # Import path: make the project-root `validator/` package importable, NOT a
@@ -35,6 +37,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from auth import authenticate, create_token, verify_token
+from usage_log import fetch_usage, log_session
 from validator import run_validation
 from validator.report import render_html
 
@@ -77,6 +80,15 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     return user
 
 
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+    return user
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -96,12 +108,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = create_token(user["username"], user["role"])
+    token = create_token(user["username"], user["role"], user.get("name", ""))
     return {
         "access_token": token,
         "token_type": "bearer",
         "username": user["username"],
         "role": user["role"],
+        "name": user.get("name", ""),
     }
 
 
@@ -115,7 +128,7 @@ async def validate(
     api_key: str = Form("", description="AI provider API key (required when use_ai=true)"),
     model: str = Form("claude-haiku-4-5", description="Model id to use"),
     provider: str = Form("anthropic", description="AI provider: 'anthropic' or 'openai'"),
-    _user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ):
     """
     Validate an uploaded SAP migration template.
@@ -153,7 +166,9 @@ async def validate(
     # the key without ever shipping it to browsers.
     env_var = "OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY"
     effective_key = api_key.strip() or os.environ.get(env_var, "").strip()
+    ai_enabled = use_ai and bool(effective_key)
 
+    started = time.monotonic()
     try:
         # Run the blocking validation (Excel parsing + any OpenAI call) in a
         # worker thread so it never blocks the event loop — otherwise a single
@@ -164,19 +179,54 @@ async def validate(
             contents,
             file_name=file.filename,
             lookup_bytes=lookup_bytes,
-            use_ai=use_ai and bool(effective_key),
+            use_ai=ai_enabled,
             api_key=effective_key or None,
             model=model,
             provider=provider,
         )
     except Exception as exc:  # noqa: BLE001
+        log_session(
+            username=user["username"],
+            role=user.get("role", "user"),
+            file_name=file.filename,
+            ai_used=ai_enabled,
+            provider=provider,
+            model=model,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            status="error",
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Validation failed: {exc}",
         ) from exc
+
+    counts = report.counts()
+    log_session(
+        username=user["username"],
+        role=user.get("role", "user"),
+        file_name=file.filename,
+        materials=report.materials_total or report.rows_total,
+        errors=counts.get("error", 0),
+        warnings=counts.get("warning", 0),
+        infos=counts.get("info", 0),
+        ai_used=ai_enabled,
+        provider=provider,
+        model=model,
+        ai_calls=report.ai_calls,
+        input_tokens=report.ai_input_tokens,
+        output_tokens=report.ai_output_tokens,
+        duration_ms=int((time.monotonic() - started) * 1000),
+    )
 
     html = render_html(report)
     result = report.to_dict()
     result["html_report"] = html  # attach rendered HTML for frontend downloads
 
     return JSONResponse(content=result)
+
+
+@app.get("/api/admin/usage")
+async def admin_usage(days: int = 30, _admin: dict = Depends(require_admin)):
+    """Usage log for the admin dashboard. days<=0 returns all history."""
+    return fetch_usage(days=days)

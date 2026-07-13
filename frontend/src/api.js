@@ -46,3 +46,9 @@ export async function validateFile({ file, lookupFile, useAi, apiKey, model, pro
   const res = await client.post('/api/validate', form)
   return res.data // ValidationReport JSON + html_report
 }
+
+// ---- Admin: usage log / dashboard ----
+export async function fetchUsage(days = 30) {
+  const res = await client.get('/api/admin/usage', { params: { days } })
+  return res.data // { days, storage, totals, per_user, sessions }
+}

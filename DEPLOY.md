@@ -43,9 +43,21 @@ files. (The `.env.example` files are committed on purpose.)
    Render reads **`render.yaml`** and provisions the `mm-validator-api` web service.
 2. When prompted, set the secret env vars (marked "sync:false"):
    - `OPENAI_API_KEY` → your **new** OpenAI key
-   - `MM_PASSWORD` → admin password
+   - `MM_PASSWORD` → built-in admin password
    - `MM01_PASSWORD` → mm01 password
+   - `SIDDIQ_UZZAMAN_PASSWORD`, `ISMAIL_SHAIK_PASSWORD`, `MOHAMED_OMRAN_PASSWORD`,
+     `MOHAMED_OSAMA_PASSWORD`, `YAHYA_OMAR_PASSWORD`, `MOHAMED_ELEWA_PASSWORD`,
+     `ABDELAZIZ_NASSAR_PASSWORD`, `ABDELRHAMAN_OSAMA_PASSWORD` → passwords for the
+     named users (login id = their e-mail address; any password left unset falls
+     back to the dev default `password123` — set them all in production)
    - `ALLOWED_ORIGINS` → leave blank for now (you'll set it in step 4)
+   - `DATABASE_URL` → *optional but recommended* — a Postgres URL for the usage
+     log (see "Usage log & admin dashboard" below). Without it the log lives in
+     a local SQLite file that **resets on every deploy/restart** (Render's free
+     tier has an ephemeral filesystem).
+   - `AI_PRICING_JSON` → *optional* — override per-model token prices used for
+     the cost column, e.g. `{"gpt-5.4": [1.25, 10.0]}` (USD per 1M input/output
+     tokens).
    - `JWT_SECRET` is auto-generated; `PYTHON_VERSION` is preset.
 3. Click **Apply** / **Create**. Wait for the first deploy to go green.
 4. Copy the service URL, e.g. `https://mm-validator-api.onrender.com`.
@@ -80,13 +92,42 @@ files. (The `.env.example` files are committed on purpose.)
 
 Open the Vercel URL and sign in:
 
-| User | Password | Sees |
+Login ids are e-mail addresses (case doesn't matter). Roles:
+
+| User | Role | Sees |
 |---|---|---|
-| `admin` | *(your `MM_PASSWORD`)* | Validator + Admin Activities (AI Configuration) |
-| `mm01` | *(your `MM01_PASSWORD`)* | Validator only |
+| `siddiq.uzzaman@arete-global.com` (Siddiq Zaman) | Admin | Validator + Admin Activities (AI Configuration, Usage Dashboard) |
+| `admin` (built-in) | Admin | Same as above |
+| `ismail.shaik@`, `mohamed.omran@`, `mohamed.osama@`, `yahya.omar@`, `mohamed.elewa@`, `abdelaziz.nassar@`, `abdelrhaman.osama@arete-global.com` | Non-Admin | Validator only |
+| `mm01` (built-in) | Non-Admin | Validator only |
 
 Upload the lookup file (Step 1) + a Product Master template (Step 2) and run.
 Toggle **AI Warning Flags** to exercise the OpenAI path (uses the server key).
+
+---
+
+## Usage log & admin dashboard
+
+Every validation run is logged (user, date/time, materials validated, AI calls,
+tokens in/out, estimated cost, duration, status). The `admin` user sees it under
+**Admin Activities → Usage Dashboard**, with per-user totals, a session log and
+CSV export.
+
+**Storage:** by default the log is a SQLite file inside the service — fine for
+local use, but on Render's free tier the filesystem is ephemeral, so the log
+resets on every deploy/restart. To make it permanent, create a **free Postgres**
+database (any of these works):
+
+- [Neon](https://neon.tech) — free serverless Postgres
+- [Supabase](https://supabase.com) — free Postgres
+- Render's own Postgres (free instance expires after 30 days)
+
+Copy its connection string into the `DATABASE_URL` env var on Render and
+redeploy — the table is created automatically on startup. No other change needed.
+
+**Cost estimates** use built-in per-model prices (Claude Haiku 4.5 = $1/$5 per
+1M tokens, etc.). Verify the OpenAI `gpt-5.4` rate against openai.com/pricing
+and override via `AI_PRICING_JSON` if it drifts.
 
 ---
 

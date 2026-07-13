@@ -66,10 +66,17 @@ def run_validation(file_path_or_bytes, file_name: str = "uploaded.xls",
     # -- Stage 3: Schema validations (per sheet) --
     sheets_list = [(sn, sd) for sn, sd in data.items() if sd.rows]
     n_sheets = len(sheets_list) or 1
+    _distinct_products: set[str] = set()
     for idx, (sheet_name, sd) in enumerate(sheets_list):
         pct = 30 + int((idx / n_sheets) * 25)   # 30 → 55
         _progress(pct, f"Schema check: {sheet_name} ({idx + 1}/{n_sheets})…")
         report.rows_total += len(sd.rows)
+        for _row in sd.rows:
+            _pc = _row.get("_cells", {}).get("PRODUCT")
+            if _pc and _pc.get("value") is not None:
+                _p = str(_pc["value"]).strip()
+                if _p:
+                    _distinct_products.add(_p)
         for f in validate_schema(
             specs, sd,
             lookup_specs=lookup_specs,
@@ -77,6 +84,12 @@ def run_validation(file_path_or_bytes, file_name: str = "uploaded.xls",
             product_mtart_map=product_mtart_map or None,
         ):
             report.add(f)
+
+    # Distinct material numbers seen across all sheets; fall back to the
+    # Basic Data row count when the PRODUCT column is absent entirely.
+    report.materials_total = len(_distinct_products) or (
+        len(basic_sd.rows) if basic_sd and basic_sd.rows else 0
+    )
 
     # -- Stage 4: Cross-field consistency --
     _progress(60, "Running cross-field consistency checks…")

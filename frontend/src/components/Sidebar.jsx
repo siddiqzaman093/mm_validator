@@ -30,7 +30,8 @@ const NavItem = ({ icon, label, to, end = false }) => {
 }
 
 export default function Sidebar() {
-  const { user, role, logout } = useAuth()
+  const { user, name, role, logout } = useAuth()
+  const displayName = name || user
 
   return (
     <aside className="w-60 bg-slate-900 flex flex-col shrink-0">
@@ -80,6 +81,16 @@ export default function Sidebar() {
                 </svg>
               }
             />
+            <NavItem
+              to="/usage-dashboard"
+              label="Usage Dashboard"
+              icon={
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              }
+            />
           </>
         )}
 
@@ -101,11 +112,11 @@ export default function Sidebar() {
       {/* User / logout */}
       <div className="p-3 border-t border-slate-700">
         <div className="flex items-center gap-3 px-3 py-2">
-          <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold uppercase">
-            {user?.[0] ?? 'U'}
+          <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold uppercase shrink-0">
+            {displayName?.[0] ?? 'U'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-slate-200 truncate">{user}</p>
+            <p className="text-sm font-medium text-slate-200 truncate" title={user}>{displayName}</p>
             <p className="text-xs text-slate-500 capitalize">{role || 'Authenticated'}</p>
           </div>
           <button

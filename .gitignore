@@ -37,3 +37,6 @@ Thumbs.db
 
 # ---- Not part of the web app (delete this line to include it) ----
 zmm_create_invoice_po.abap
+
+# ---- Local usage-log database (SQLite fallback) ----
+backend/data/

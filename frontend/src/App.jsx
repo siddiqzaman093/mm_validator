@@ -3,6 +3,7 @@ import { useAuth } from './contexts/AuthContext'
 import LoginPage from './pages/LoginPage'
 import ValidatorPage from './pages/ValidatorPage'
 import AiConfigPage from './pages/AiConfigPage'
+import UsageDashboardPage from './pages/UsageDashboardPage'
 import AboutPage from './pages/AboutPage'
 import Layout from './components/Layout'
 
@@ -34,6 +35,14 @@ export default function App() {
           element={
             <AdminRoute>
               <AiConfigPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/usage-dashboard"
+          element={
+            <AdminRoute>
+              <UsageDashboardPage />
             </AdminRoute>
           }
         />
