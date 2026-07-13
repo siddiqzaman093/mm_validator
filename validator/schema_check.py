@@ -137,6 +137,38 @@ def validate_schema(specs: dict[tuple[str, str], FieldSpec], sheet: SheetData,
     # Build per-sheet spec lookup (keyed by SAP field code)
     sheet_specs = {fld: spec for (sh, fld), spec in specs.items() if sh == sheet.sheet}
 
+    # ---- Fields Entry ↔ Field List description matching -------------------
+    # The two sources name fields slightly differently (Field List:
+    # "Base Unit of Measure (ISO Format)", "Description"; Fields Entry:
+    # "Base Unit of Measure", "Material Description"), so an exact-text join
+    # silently drops mandatory marks. Normalise both sides — lowercase,
+    # strip parentheticals, drop a leading "Material " prefix — and then
+    # require EXACT equality (fuzzy suffix matching overmatches, e.g.
+    # "Manufacturer Product Number" vs "Product Number").
+    def _norm_desc(s: str) -> str:
+        s = re.sub(r"\([^)]*\)", " ", (s or "").lower())
+        s = re.sub(r"\s+", " ", s).strip()
+        if s.startswith("material "):
+            s = s[len("material "):]
+        return s
+
+    # mtart → set of SAP field codes marked mandatory on THIS sheet
+    _mandatory_sap_cache: dict[str, set[str]] = {}
+
+    def _fields_entry_mandatory_sap(mtart_key: str) -> set[str]:
+        cached = _mandatory_sap_cache.get(mtart_key)
+        if cached is not None:
+            return cached
+        entries = {
+            _norm_desc(desc)
+            for (sh, desc) in (mandatory_by_mtart or {}).get(mtart_key, set())
+            if sh == sheet.sheet.lower()
+        }
+        out = {fld for fld, sp in sheet_specs.items()
+               if _norm_desc(sp.description) in entries}
+        _mandatory_sap_cache[mtart_key] = out
+        return out
+
     for row in sheet.rows:
         excel_row = row["_row"]
         cells = row["_cells"]
@@ -159,7 +191,9 @@ def validate_schema(specs: dict[tuple[str, str], FieldSpec], sheet: SheetData,
             and mtart
             and mtart in mandatory_by_mtart
         )
-        fields_entry_mandatory: set = mandatory_by_mtart[mtart] if use_fields_entry else set()
+        fields_entry_mandatory_sap: set[str] = (
+            _fields_entry_mandatory_sap(mtart) if use_fields_entry else set()
+        )
 
         # --- Mandatory check ---
         for sap_field, spec in sheet_specs.items():
@@ -169,8 +203,7 @@ def validate_schema(specs: dict[tuple[str, str], FieldSpec], sheet: SheetData,
                 is_mandatory = True
             elif use_fields_entry:
                 # Use Fields Entry: field is mandatory iff it has 'X' for this MTART
-                key = (sheet.sheet.lower(), spec.description.lower())
-                is_mandatory = key in fields_entry_mandatory
+                is_mandatory = sap_field in fields_entry_mandatory_sap
             else:
                 # Fallback: Field List importance flag (req 6 & 7)
                 is_mandatory = spec.is_mandatory
