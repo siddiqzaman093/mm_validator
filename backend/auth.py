@@ -49,22 +49,33 @@ def _env_var_for(login: str) -> str:
     return re.sub(r"[^A-Z0-9]", "_", mailbox.upper()) + "_PASSWORD"
 
 
+def _env_password(var: str, default: str) -> str:
+    """
+    Read a password env var defensively. A Render blueprint sync can (re)create
+    sync:false vars with EMPTY values, and copy-paste often adds stray
+    whitespace — an empty/blank value would lock the account out entirely, so
+    treat it as unset and fall back to the default instead.
+    """
+    value = (os.getenv(var) or "").strip()
+    return value or default
+
+
 # username (lowercase) -> {password, role, name}
 USERS: dict[str, dict[str, str]] = {
     "admin": {
-        "password": os.getenv("MM_PASSWORD", "admin123"),
+        "password": _env_password("MM_PASSWORD", "admin123"),
         "role": "admin",
         "name": "Administrator",
     },
     "mm01": {
-        "password": os.getenv("MM01_PASSWORD", "password123"),
+        "password": _env_password("MM01_PASSWORD", "password123"),
         "role": "user",
         "name": "MM01",
     },
 }
 for _login, _display, _role in _DIRECTORY:
     USERS[_login] = {
-        "password": os.getenv(_env_var_for(_login), "password123"),
+        "password": _env_password(_env_var_for(_login), "password123"),
         "role": _role,
         "name": _display,
     }
