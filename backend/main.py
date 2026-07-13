@@ -185,7 +185,9 @@ async def validate(
             provider=provider,
         )
     except Exception as exc:  # noqa: BLE001
-        log_session(
+        # Log writes may hit a remote Postgres — keep them off the event loop too.
+        await run_in_threadpool(
+            log_session,
             username=user["username"],
             role=user.get("role", "user"),
             file_name=file.filename,
@@ -202,7 +204,8 @@ async def validate(
         ) from exc
 
     counts = report.counts()
-    log_session(
+    await run_in_threadpool(
+        log_session,
         username=user["username"],
         role=user.get("role", "user"),
         file_name=file.filename,
@@ -229,4 +232,4 @@ async def validate(
 @app.get("/api/admin/usage")
 async def admin_usage(days: int = 30, _admin: dict = Depends(require_admin)):
     """Usage log for the admin dashboard. days<=0 returns all history."""
-    return fetch_usage(days=days)
+    return await run_in_threadpool(fetch_usage, days=days)
