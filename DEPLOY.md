@@ -106,7 +106,7 @@ Login ids are e-mail addresses (case doesn't matter). Roles:
 | `mm01` (built-in) | Non-Admin | Validator only |
 
 Upload the lookup file (Step 1) + a Product Master template (Step 2) and run.
-Toggle **AI Warning Flags** to exercise the OpenAI path (uses the server key).
+Toggle **AI-Enabled Validations** to exercise the OpenAI path (uses the server key).
 
 ---
 

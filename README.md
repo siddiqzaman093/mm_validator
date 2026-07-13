@@ -89,7 +89,7 @@ Sign in with the `MM_USERNAME` / `MM_PASSWORD` you set above (defaults
 
 1. **Step 1** — upload `Product Master Lookup File.xlsx` (required).
 2. **Step 2** — upload `Product Master Creation.xls` / `.xlsx`.
-3. Optionally toggle **AI Warning Flags**, pick a provider (Anthropic or
+3. Optionally toggle **AI-Enabled Validations**, pick a provider (Anthropic or
    OpenAI) and paste an API key, then **Run Validation**.
 
 Results show as KPI cards + findings (by category / by sheet / filterable

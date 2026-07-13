@@ -51,13 +51,13 @@ _STYLE = """
 """
 
 
-def _health_label(report: ValidationReport) -> tuple[str, str]:
-    counts = report.counts()
-    if counts["error"] == 0 and counts["warning"] == 0:
-        return "GREEN — no issues found", "green"
-    if counts["error"] == 0:
-        return f"AMBER — {counts['warning']} warning(s)", "amber"
-    return f"RED — {counts['error']} error(s) require attention", "red"
+def _readiness_headline(readiness: dict) -> tuple[str, str]:
+    cls = {"green": "green", "amber": "amber", "orange": "amber", "red": "red"}
+    return (
+        f"Readiness Score: {readiness['score']} / 100 — {readiness['label']} "
+        f"({readiness['ready_materials']}/{readiness['total_materials']} materials error-free)",
+        cls.get(readiness["band"], "amber"),
+    )
 
 
 def _findings_table(findings: list[Finding]) -> str:
@@ -92,7 +92,8 @@ def _findings_table(findings: list[Finding]) -> str:
 
 def render_html(report: ValidationReport) -> str:
     counts = report.counts()
-    health_text, health_cls = _health_label(report)
+    readiness = report.readiness()
+    health_text, health_cls = _readiness_headline(readiness)
 
     grouped: dict[str, list[Finding]] = defaultdict(list)
     for f in report.findings:
@@ -107,13 +108,15 @@ def render_html(report: ValidationReport) -> str:
     for f in report.findings:
         by_sheet[f.sheet].append(f)
 
-    readiness = report.readiness()
     readiness_cls = {"green": "ok", "amber": "warning",
                      "orange": "warning", "red": "error"}.get(readiness["band"], "info")
     cards = (
-        f'<div class="card {readiness_cls}"><div class="label">Readiness Score</div>'
-        f'<div class="value">{readiness["score"]} / 100</div>'
-        f'<div class="label" style="margin-top:4px;text-transform:none;">{html.escape(readiness["label"])} · '
+        # The Readiness card is the headline — deliberately larger and heavier
+        # than the plain Errors/Warnings tiles.
+        f'<div class="card {readiness_cls}" style="grid-column: span 2; border-left-width: 8px;">'
+        f'<div class="label" style="font-weight:700;">Readiness Score</div>'
+        f'<div class="value" style="font-size:40px;">{readiness["score"]} <span style="font-size:18px;opacity:.6;">/ 100</span></div>'
+        f'<div class="label" style="margin-top:4px;text-transform:none;font-size:13px;">{html.escape(readiness["label"])} · '
         f'{readiness["ready_materials"]}/{readiness["total_materials"]} materials error-free</div></div>'
         f'<div class="card error"><div class="label">Errors</div><div class="value">{counts["error"]}</div></div>'
         f'<div class="card warning"><div class="label">Warnings</div><div class="value">{counts["warning"]}</div></div>'
@@ -140,7 +143,7 @@ def render_html(report: ValidationReport) -> str:
   <div class="meta">
     File: <strong>{html.escape(report.file_name)}</strong> · Generated: {now}
   </div>
-  <div class="health {health_cls}">Health: {html.escape(health_text)}</div>
+  <div class="health {health_cls}">{html.escape(health_text)}</div>
   <div class="cards">{cards}</div>
 
   <h2>Findings by Category</h2>

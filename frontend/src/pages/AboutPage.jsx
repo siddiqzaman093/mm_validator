@@ -62,7 +62,7 @@ export default function AboutPage() {
           {[
             ['1', 'Upload the Master Lookup File', 'Defines the authoritative SAP field types, per-material-type mandatory fields, and plant → profit-center mappings.'],
             ['2', 'Upload the Material Master data', 'The Migration Cockpit “Product Master Creation” .xls / .xlsx workbook to validate.'],
-            ['3', 'Run Validation', 'Optionally enable AI Warning Flags first. Review the findings and download the report.'],
+            ['3', 'Run Validation', 'Optionally enable AI-Enabled Validations first. Review the findings and download the report.'],
           ].map(([n, title, desc]) => (
             <li key={n} className="flex gap-3">
               <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold shrink-0">{n}</span>

@@ -10,7 +10,7 @@ export default function AiConfigPage() {
       <div>
         <h2 className="text-xl font-bold text-slate-800">AI Configuration</h2>
         <p className="text-sm text-slate-500 mt-0.5">
-          Admin Activities — provider, key and model used for the AI Warning Flags.
+          Admin Activities — provider, key and model used for the AI-Enabled Validations.
         </p>
       </div>
 
@@ -24,7 +24,7 @@ export default function AiConfigPage() {
           <h3 className="text-base font-bold text-slate-800">Admin Activities</h3>
         </div>
         <p className="text-xs text-slate-500 mb-4">
-          AI configuration (applied for all users when <strong>AI Warning Flags</strong> is enabled).
+          AI configuration (applied for all users when <strong>AI-Enabled Validations</strong> is enabled).
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>

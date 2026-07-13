@@ -116,14 +116,6 @@ export default function ValidatorPage() {
   }
 
   const counts = report?.counts ?? {}
-  const statusColor = !report ? '' :
-    counts.error   > 0 ? 'border-red-300   bg-red-50   text-red-800' :
-    counts.warning > 0 ? 'border-amber-300 bg-amber-50 text-amber-800' :
-                         'border-green-300 bg-green-50 text-green-800'
-  const statusText = !report ? '' :
-    counts.error   > 0 ? `🔴 RED — ${counts.error} error(s) require attention before upload.` :
-    counts.warning > 0 ? `🟡 AMBER — ${counts.warning} warning(s), 0 errors.` :
-                         `🟢 GREEN — No issues found.`
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -172,7 +164,7 @@ export default function ValidatorPage() {
           {/* Settings panel — Validator section (AI toggle only) */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">AI Warning Flags</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">AI-Enabled Validations</label>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setUseAi(v => !v)}
@@ -226,12 +218,7 @@ export default function ValidatorPage() {
       {/* Results */}
       {report && (
         <div className="space-y-4">
-          {/* Status banner */}
-          <div className={`p-4 rounded-xl border font-medium text-sm ${statusColor}`}>
-            {statusText}
-          </div>
-
-          {/* KPI cards */}
+          {/* KPI cards (Readiness Score is the headline) */}
           <KPICards counts={counts} report={report} />
 
           {/* Tabs */}

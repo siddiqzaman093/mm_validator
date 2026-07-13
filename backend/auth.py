@@ -4,7 +4,7 @@ JWT-based authentication for MM Validator API.
 Two roles are supported:
   admin — full access, including the Admin Activities (AI configuration and
           Usage Dashboard) panels
-  user  — validator only (AI Warning Flags toggle); no admin panels visible
+  user  — validator only (AI-Enabled Validations toggle); no admin panels visible
 
 Login ids are e-mail addresses (matched case-insensitively), plus the two
 built-in accounts `admin` and `mm01`.

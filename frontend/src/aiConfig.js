@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // AI configuration shown under "Admin Activities → AI Configuration" (admin
-// only) and applied for every user when "AI Warning Flags" is enabled.
+// only) and applied for every user when "AI-Enabled Validations" is enabled.
 //
 // The API key is intentionally NOT here — it lives in a backend environment
 // variable (OPENAI_API_KEY) so it is never shipped to browsers. The backend
