@@ -163,7 +163,11 @@ def validate_schema(specs: dict[tuple[str, str], FieldSpec], sheet: SheetData,
 
         # --- Mandatory check ---
         for sap_field, spec in sheet_specs.items():
-            if use_fields_entry:
+            if sap_field == "PRODUCT":
+                # Product Number is the key field of every sheet — always
+                # mandatory, regardless of Fields Entry X-marks / Field List.
+                is_mandatory = True
+            elif use_fields_entry:
                 # Use Fields Entry: field is mandatory iff it has 'X' for this MTART
                 key = (sheet.sheet.lower(), spec.description.lower())
                 is_mandatory = key in fields_entry_mandatory

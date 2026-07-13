@@ -41,15 +41,19 @@ files. (The `.env.example` files are committed on purpose.)
 
 1. Render dashboard → **New → Blueprint** → connect your GitHub repo.
    Render reads **`render.yaml`** and provisions the `mm-validator-api` web service.
-2. When prompted, set the secret env vars (marked "sync:false"):
+2. Set the secret env vars **manually in the dashboard** (service →
+   **Environment** → Add Environment Variable). They are deliberately NOT
+   declared in `render.yaml` — blueprint syncs manage (and can wipe) whatever
+   is listed there, so secrets live only in the dashboard where syncs never
+   touch them:
    - `OPENAI_API_KEY` → your **new** OpenAI key
    - `MM_PASSWORD` → built-in admin password
    - `MM01_PASSWORD` → mm01 password
    - `SIDDIQ_UZZAMAN_PASSWORD`, `ISMAIL_SHAIK_PASSWORD`, `MOHAMED_OMRAN_PASSWORD`,
      `MOHAMED_OSAMA_PASSWORD`, `YAHYA_OMAR_PASSWORD`, `MOHAMED_ELEWA_PASSWORD`,
      `ABDELAZIZ_NASSAR_PASSWORD`, `ABDELRHAMAN_OSAMA_PASSWORD` → passwords for the
-     named users (login id = their e-mail address; any password left unset falls
-     back to the dev default `password123` — set them all in production)
+     named users (login id = their e-mail address; any password left unset/blank
+     falls back to the dev default `password123` — set them all in production)
    - `ALLOWED_ORIGINS` → leave blank for now (you'll set it in step 4)
    - `DATABASE_URL` → *optional but recommended* — a Postgres URL for the usage
      log (see "Usage log & admin dashboard" below). Without it the log lives in

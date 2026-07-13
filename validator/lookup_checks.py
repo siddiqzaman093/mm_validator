@@ -4,9 +4,10 @@ Lookup-file driven cross-reference validations.
 1. Product Type → Material Class + Valuation Type  (Fields Entry sheet)
    1.1  Product type must exist in lookup.
    1.2  Material Class and Valuation Type are retrieved from the lookup.
-   1.3  Warn if either value is blank in the lookup.
-   1.4  Compare Material Class with Class Data sheet 'Class' field.
-   1.5  Compare Valuation Type with Valuation Data sheet 'Valuation Type' field.
+   1.3  Both are OPTIONAL in the lookup: a blank value means "applies to all"
+        for that material type — no finding is raised and no comparison made.
+   1.4  When maintained, compare Material Class with Class Data sheet 'Class'.
+   1.5  When maintained, compare Valuation Type with Valuation Data 'BWTAR'.
 
 2. Plant → Profit Center  (Plant-ProfitCenter sheet)
    2.1  Get expected Profit Center for each Plant from the lookup.
@@ -113,22 +114,9 @@ def check_product_type_vs_lookup(
         expected_class   = lkp.get("material_class") or ""
         expected_valtype = lkp.get("valuation_type") or ""
 
-        # ── 1.3a Material Class blank in lookup ───────────────────────────
-        if not expected_class:
-            findings.append(Finding(
-                severity=Severity.WARNING,
-                category="Lookup/ProductType",
-                sheet=basic_data.sheet, row=r,
-                field="Material Class", sap_field="MTART",
-                message=(
-                    f"Material Class for product type '{mat_type}' is not "
-                    "maintained in the lookup file (Fields Entry)."
-                ),
-                material=product, value=mat_type,
-                rule_id="LKP_MATERIAL_CLASS_MISSING",
-            ))
-        else:
-            # ── 1.4 Compare with Class Data ───────────────────────────────
+        # ── 1.3a/1.4 Material Class: blank in lookup = applies to all ─────
+        # (no finding when blank; only compare when a value is maintained)
+        if expected_class:
             actual_class = class_by_product.get(product, "")
             if actual_class and _norm(actual_class) != _norm(expected_class):
                 findings.append(Finding(
@@ -146,22 +134,9 @@ def check_product_type_vs_lookup(
                     rule_id="LKP_MATERIAL_CLASS_MISMATCH",
                 ))
 
-        # ── 1.3b Valuation Type blank in lookup ───────────────────────────
-        if not expected_valtype:
-            findings.append(Finding(
-                severity=Severity.WARNING,
-                category="Lookup/ProductType",
-                sheet=basic_data.sheet, row=r,
-                field="Valuation Type", sap_field="MTART",
-                message=(
-                    f"Valuation Type for product type '{mat_type}' is not "
-                    "maintained in the lookup file (Fields Entry)."
-                ),
-                material=product, value=mat_type,
-                rule_id="LKP_VALUATION_TYPE_MISSING",
-            ))
-        else:
-            # ── 1.5 Compare with Valuation Data ──────────────────────────
+        # ── 1.3b/1.5 Valuation Type: blank in lookup = applies to all ─────
+        # (no finding when blank; only compare when a value is maintained)
+        if expected_valtype:
             actual_valtype = valtype_by_product.get(product, "")
             if actual_valtype and _norm(actual_valtype) != _norm(expected_valtype):
                 findings.append(Finding(
