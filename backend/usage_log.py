@@ -82,11 +82,28 @@ usage_sessions = Table(
     Column("output_tokens", Integer, nullable=False, default=0),
     Column("cost_usd", Float, nullable=False, default=0.0),
     Column("duration_ms", Integer, nullable=False, default=0),
+    Column("readiness_score", Integer, nullable=True),
     Column("status", String(16), nullable=False, default="success"),
     Column("error", String(500), nullable=False, default=""),
 )
 
 _metadata.create_all(_engine)
+
+# Micro-migration: create_all() doesn't alter existing tables, so add columns
+# introduced after the first deployment if they're missing.
+def _ensure_columns() -> None:
+    from sqlalchemy import inspect, text
+    try:
+        existing = {c["name"] for c in inspect(_engine).get_columns("usage_sessions")}
+        with _engine.begin() as conn:
+            if "readiness_score" not in existing:
+                conn.execute(text(
+                    "ALTER TABLE usage_sessions ADD COLUMN readiness_score INTEGER"))
+    except Exception:  # noqa: BLE001 — a failed migration must not block startup
+        pass
+
+
+_ensure_columns()
 
 
 def storage_info() -> dict:
@@ -167,6 +184,7 @@ def log_session(
     input_tokens: int = 0,
     output_tokens: int = 0,
     duration_ms: int = 0,
+    readiness_score: int | None = None,
     status: str = "success",
     error: str = "",
 ) -> None:
@@ -191,6 +209,7 @@ def log_session(
                 output_tokens=output_tokens,
                 cost_usd=round(cost, 6),
                 duration_ms=duration_ms,
+                readiness_score=readiness_score,
                 status=status,
                 error=(error or "")[:500],
             ))

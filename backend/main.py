@@ -220,6 +220,7 @@ async def validate(
         input_tokens=report.ai_input_tokens,
         output_tokens=report.ai_output_tokens,
         duration_ms=int((time.monotonic() - started) * 1000),
+        readiness_score=report.readiness()["score"],
     )
 
     html = render_html(report)

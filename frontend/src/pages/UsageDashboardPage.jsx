@@ -32,9 +32,9 @@ function KpiCard({ label, value, sub }) {
 
 function exportCsv(sessions) {
   const cols = [
-    'started_at', 'username', 'file_name', 'materials', 'errors', 'warnings',
-    'infos', 'ai_used', 'provider', 'model', 'ai_calls', 'input_tokens',
-    'output_tokens', 'cost_usd', 'duration_ms', 'status',
+    'started_at', 'username', 'file_name', 'materials', 'readiness_score',
+    'errors', 'warnings', 'infos', 'ai_used', 'provider', 'model', 'ai_calls',
+    'input_tokens', 'output_tokens', 'cost_usd', 'duration_ms', 'status',
   ]
   const esc = (v) => {
     const s = String(v ?? '')
@@ -185,6 +185,7 @@ export default function UsageDashboardPage() {
                       <th className="py-2 pr-4">User</th>
                       <th className="py-2 pr-4">File</th>
                       <th className="py-2 pr-4 text-right">Materials</th>
+                      <th className="py-2 pr-4 text-right">Readiness</th>
                       <th className="py-2 pr-4 text-right">AI Calls</th>
                       <th className="py-2 pr-4 text-right">Tokens In</th>
                       <th className="py-2 pr-4 text-right">Tokens Out</th>
@@ -201,6 +202,9 @@ export default function UsageDashboardPage() {
                           {s.file_name}
                         </td>
                         <td className="py-2 pr-4 text-right">{fmtInt(s.materials)}</td>
+                        <td className="py-2 pr-4 text-right">
+                          {s.readiness_score == null ? '—' : `${s.readiness_score}/100`}
+                        </td>
                         <td className="py-2 pr-4 text-right">{fmtInt(s.ai_calls)}</td>
                         <td className="py-2 pr-4 text-right">{fmtInt(s.input_tokens)}</td>
                         <td className="py-2 pr-4 text-right">{fmtInt(s.output_tokens)}</td>

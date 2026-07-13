@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { validateFile, pingHealth } from '../api'
-import { AI_PROVIDER, AI_MODEL, AI_MODEL_LABEL } from '../aiConfig'
+import { AI_PROVIDER, AI_MODEL } from '../aiConfig'
 import ValidationProgress from '../components/ValidationProgress'
 import KPICards from '../components/KPICards'
 import FindingsTable from '../components/FindingsTable'
@@ -229,11 +229,6 @@ export default function ValidatorPage() {
           {/* Status banner */}
           <div className={`p-4 rounded-xl border font-medium text-sm ${statusColor}`}>
             {statusText}
-            {report.ai_calls > 0 && (
-              <span className="ml-3 text-xs opacity-70">
-                AI — input: {report.ai_input_tokens} tokens · output: {report.ai_output_tokens} tokens · model: {AI_MODEL_LABEL}
-              </span>
-            )}
           </div>
 
           {/* KPI cards */}

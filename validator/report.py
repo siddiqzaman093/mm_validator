@@ -107,15 +107,19 @@ def render_html(report: ValidationReport) -> str:
     for f in report.findings:
         by_sheet[f.sheet].append(f)
 
+    readiness = report.readiness()
+    readiness_cls = {"green": "ok", "amber": "warning",
+                     "orange": "warning", "red": "error"}.get(readiness["band"], "info")
     cards = (
+        f'<div class="card {readiness_cls}"><div class="label">Readiness Score</div>'
+        f'<div class="value">{readiness["score"]} / 100</div>'
+        f'<div class="label" style="margin-top:4px;text-transform:none;">{html.escape(readiness["label"])} · '
+        f'{readiness["ready_materials"]}/{readiness["total_materials"]} materials error-free</div></div>'
         f'<div class="card error"><div class="label">Errors</div><div class="value">{counts["error"]}</div></div>'
         f'<div class="card warning"><div class="label">Warnings</div><div class="value">{counts["warning"]}</div></div>'
         f'<div class="card info"><div class="label">Info</div><div class="value">{counts["info"]}</div></div>'
         f'<div class="card ok"><div class="label">Sheets w/ Data</div><div class="value">{len(report.sheets_seen)}</div></div>'
         f'<div class="card ok"><div class="label">Data Rows</div><div class="value">{report.rows_total}</div></div>'
-        f'<div class="card info"><div class="label">AI Calls</div><div class="value">{report.ai_calls}</div></div>'
-        f'<div class="card info"><div class="label">AI Tokens (in/out)</div><div class="value" style="font-size:18px;">{report.ai_input_tokens}/{report.ai_output_tokens}</div></div>'
-        f'<div class="card ok"><div class="label">Elapsed</div><div class="value" style="font-size:18px;">{report.elapsed_ms} ms</div></div>'
     )
 
     cat_blocks = "".join(

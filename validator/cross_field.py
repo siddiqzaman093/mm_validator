@@ -37,6 +37,7 @@ def _strip_quantities(tokens: frozenset) -> frozenset:
     return frozenset(t for t in tokens if not _PACK_SIZE_RE.match(t))
 
 from .models import Finding, Severity, SheetData
+from .plausibility import check_uom_amounts
 from .uom_conversion import check_conversion
 from .uom_data import is_valid_sap_uom, describe_sap_uom
 
@@ -738,6 +739,7 @@ def run_cross_checks(data: dict[str, SheetData]) -> list[Finding]:
     findings += check_valuation(data.get("Valuation Data"))
     findings += check_sales(data.get("Distribution Chains"))
     findings += check_alt_uom(data.get("Alternative Units of Measure"), data.get("Basic Data"))
+    findings += check_uom_amounts(data.get("Basic Data"), data.get("Alternative Units of Measure"))
     findings += check_storage_locations(data.get("Storage Locations"), data.get("Plant Data"))
     findings += check_forecasting(data.get("Forecasting Data"), data.get("Plant Data"))
     findings += check_mrp_area(data.get("MRP Area"))
