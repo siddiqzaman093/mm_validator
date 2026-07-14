@@ -187,6 +187,14 @@ def load_sheet_data(book: _Book, sheet_name: str) -> SheetData | None:
                 continue
             ctype = sh.cell_type(r, c)
             value = sh.cell_value(r, c)
+            # xlrd reads every numeric cell as a float, so an integer-valued
+            # material number / plant / code (e.g. 1054) becomes 1054.0 and
+            # renders with a trailing ".0". Normalise whole numbers to int.
+            # Guard on XL_CELL_NUMBER only — dates are floats too and must not
+            # be truncated; genuine decimals (12.5) are left untouched.
+            if (ctype == xlrd.XL_CELL_NUMBER
+                    and isinstance(value, float) and value.is_integer()):
+                value = int(value)
             row["_cells"][sap_field] = {
                 "value": value,
                 "type": ctype,
