@@ -84,6 +84,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 _REPORT_DIR = Path(tempfile.gettempdir()) / "mm_validator_reports"
 _REPORT_TTL_SECONDS = 60 * 60
 
+# ---------------------------------------------------------------------------
+# Active-run registry: run_key -> live progress of an in-flight validation.
+# In-memory by design — this deployment is a single uvicorn worker, and the
+# list answers "what is the server doing right now", so losing it on a
+# restart is fine (a restart also kills the runs it described).
+# ---------------------------------------------------------------------------
+_ACTIVE_RUNS: dict[str, dict] = {}
+
 _CSV_COLS = ["severity", "ai_generated", "category", "sheet", "material",
              "row", "field", "sap_field", "value", "message", "rule_id"]
 
@@ -216,6 +224,30 @@ async def validate(
     ai_enabled = use_ai and bool(effective_key)
 
     started = time.monotonic()
+
+    # Register this run so admins can see in-flight validations (including
+    # orphaned ones whose browser has gone away — the server keeps working).
+    run_key = uuid.uuid4().hex
+    run_entry = {
+        "username": user["username"],
+        "file_name": file.filename,
+        "ai_enabled": ai_enabled,
+        "started_ts": time.time(),
+        "stage": "Starting…",
+        "pct": 0,
+        "ai_done": 0,
+        "ai_total": 0,
+    }
+    _ACTIVE_RUNS[run_key] = run_entry
+
+    def _on_progress(pct: int, msg: str) -> None:
+        run_entry["pct"] = pct
+        run_entry["stage"] = msg
+
+    def _on_ai_progress(done: int, total: int) -> None:
+        run_entry["ai_done"] = done
+        run_entry["ai_total"] = total
+
     try:
         # Run the blocking validation (Excel parsing + any OpenAI call) in a
         # worker thread so it never blocks the event loop — otherwise a single
@@ -230,6 +262,8 @@ async def validate(
             api_key=effective_key or None,
             model=model,
             provider=provider,
+            progress_callback=_on_progress,
+            ai_progress_callback=_on_ai_progress,
         )
     except Exception as exc:  # noqa: BLE001
         # Log writes may hit a remote Postgres — keep them off the event loop too.
@@ -249,6 +283,8 @@ async def validate(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Validation failed: {exc}",
         ) from exc
+    finally:
+        _ACTIVE_RUNS.pop(run_key, None)
 
     counts = report.counts()
     await run_in_threadpool(
@@ -299,3 +335,25 @@ async def download_findings_csv(report_id: str, _user: dict = Depends(get_curren
 async def admin_usage(days: int = 30, _admin: dict = Depends(require_admin)):
     """Usage log for the admin dashboard. days<=0 returns all history."""
     return await run_in_threadpool(fetch_usage, days=days)
+
+
+@app.get("/api/admin/active")
+async def admin_active_runs(_admin: dict = Depends(require_admin)):
+    """Validations running on the server right now (admin only)."""
+    now = time.time()
+    runs = sorted(_ACTIVE_RUNS.values(), key=lambda e: e["started_ts"])
+    return {
+        "runs": [
+            {
+                "username": e["username"],
+                "file_name": e["file_name"],
+                "ai_enabled": e["ai_enabled"],
+                "elapsed_s": int(now - e["started_ts"]),
+                "stage": e["stage"],
+                "pct": e["pct"],
+                "ai_done": e["ai_done"],
+                "ai_total": e["ai_total"],
+            }
+            for e in runs
+        ]
+    }

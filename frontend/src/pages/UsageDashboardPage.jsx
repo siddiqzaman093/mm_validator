@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fetchUsage } from '../api'
+import { fetchUsage, fetchActiveRuns } from '../api'
 
 const RANGES = [
   { label: 'Last 7 days', value: 7 },
@@ -18,6 +18,82 @@ const fmtDate = (iso) => {
     year: 'numeric', month: 'short', day: '2-digit',
     hour: '2-digit', minute: '2-digit',
   })
+}
+
+const fmtElapsed = (s) => {
+  if (s == null) return '—'
+  const m = Math.floor(s / 60)
+  return m > 0 ? `${m}m ${s % 60}s` : `${s}s`
+}
+
+/** Validations running on the server right now — polls every 5s. */
+function ActiveRuns() {
+  const [runs, setRuns] = useState([])
+  const [available, setAvailable] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    async function poll() {
+      try {
+        const data = await fetchActiveRuns()
+        if (alive) { setRuns(data.runs || []); setAvailable(true) }
+      } catch {
+        if (alive) setAvailable(false) // older backend or transient error — hide quietly
+      }
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  if (!available) return null
+  return (
+    <div className="card p-6">
+      <h3 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
+        Currently Running
+        {runs.length > 0 && (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            {runs.length} active
+          </span>
+        )}
+      </h3>
+      {runs.length === 0 ? (
+        <p className="text-sm text-slate-400">No validations running on the server right now.</p>
+      ) : (
+        <div className="space-y-3">
+          {runs.map((r, i) => (
+            <div key={i} className="border border-slate-200 rounded-xl p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <span className="font-medium text-slate-700">{r.username}</span>
+                  <span className="text-slate-400 mx-2">·</span>
+                  <span className="text-slate-600 truncate" title={r.file_name}>{r.file_name}</span>
+                  {r.ai_enabled && (
+                    <span className="ml-2 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-xs font-semibold">AI</span>
+                  )}
+                </div>
+                <span className="text-xs text-slate-500 whitespace-nowrap">running {fmtElapsed(r.elapsed_s)}</span>
+              </div>
+              <div className="mt-2 flex items-center gap-3">
+                <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full transition-all"
+                    style={{ width: `${Math.min(100, r.pct || 0)}%` }}
+                  />
+                </div>
+                <span className="text-xs text-slate-500 whitespace-nowrap">{r.pct ?? 0}%</span>
+              </div>
+              <p className="mt-1.5 text-xs text-slate-500">
+                {r.stage}
+                {r.ai_total > 0 && ` — AI items ${fmtInt(r.ai_done)}/${fmtInt(r.ai_total)}`}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function KpiCard({ label, value, sub }) {
@@ -108,6 +184,9 @@ export default function UsageDashboardPage() {
       {error && (
         <div className="card p-4 border border-red-200 bg-red-50 text-sm text-red-700">{error}</div>
       )}
+
+      {/* Live view of in-flight validations (independent of the log below) */}
+      <ActiveRuns />
 
       {loading ? (
         <div className="card p-8 text-center text-sm text-slate-400">Loading usage data…</div>

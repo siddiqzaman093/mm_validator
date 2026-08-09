@@ -97,3 +97,8 @@ export async function fetchUsage(days = 30) {
   const res = await client.get('/api/admin/usage', { params: { days } })
   return res.data // { days, storage, totals, per_user, sessions }
 }
+
+export async function fetchActiveRuns() {
+  const res = await client.get('/api/admin/active')
+  return res.data // { runs: [{username, file_name, ai_enabled, elapsed_s, stage, pct, ai_done, ai_total}] }
+}
