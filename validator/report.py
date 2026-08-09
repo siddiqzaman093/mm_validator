@@ -60,11 +60,18 @@ def _readiness_headline(readiness: dict) -> tuple[str, str]:
     )
 
 
+# A 60k-row file can produce tens of thousands of findings; rendering each one
+# twice (by category + by sheet) would make the HTML report tens of MB. Each
+# group shows the most severe rows up to this cap; the CSV download is complete.
+MAX_ROWS_PER_GROUP = 300
+
+
 def _findings_table(findings: list[Finding]) -> str:
     if not findings:
         return '<div class="empty">No issues in this group.</div>'
+    omitted = len(findings) - MAX_ROWS_PER_GROUP
     rows = []
-    for f in findings:
+    for f in findings[:MAX_ROWS_PER_GROUP]:
         ai_badge = '<span class="ai">AI</span>' if f.ai_generated else ""
         rows.append(
             f"<tr>"
@@ -80,6 +87,11 @@ def _findings_table(findings: list[Finding]) -> str:
             + f'</td>'
             f'<td><span class="rule">{html.escape(f.rule_id)}</span></td>'
             f"</tr>"
+        )
+    if omitted > 0:
+        rows.append(
+            f'<tr><td colspan="7" style="color:#94a3b8;">… and {omitted} more '
+            f'finding(s) in this group — download the CSV for the complete list.</td></tr>'
         )
     return (
         '<table><thead><tr>'
@@ -107,6 +119,8 @@ def render_html(report: ValidationReport) -> str:
     by_sheet: dict[str, list[Finding]] = defaultdict(list)
     for f in report.findings:
         by_sheet[f.sheet].append(f)
+    for sheet in by_sheet:   # most severe first, so the per-group cap keeps them
+        by_sheet[sheet].sort(key=lambda f: (severity_order.get(f.severity.value, 99), f.row or 0))
 
     readiness_cls = {"green": "ok", "amber": "warning",
                      "orange": "warning", "red": "error"}.get(readiness["band"], "info")

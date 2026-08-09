@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { validateFile, pingHealth } from '../api'
+import { validateFile, pingHealth, downloadFindingsCsv } from '../api'
 import { AI_PROVIDER, AI_MODEL } from '../aiConfig'
 import ValidationProgress from '../components/ValidationProgress'
 import KPICards from '../components/KPICards'
@@ -117,6 +117,27 @@ export default function ValidatorPage() {
 
   const counts = report?.counts ?? {}
 
+  // Full CSV comes from the server: with very large files the JSON response
+  // only carries the most severe findings, so a client-built CSV would be
+  // incomplete. Falls back to client-side generation for older responses.
+  async function handleCsvDownload() {
+    if (report.csv_report_id) {
+      try {
+        const blob = await downloadFindingsCsv(report.csv_report_id)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url; a.download = `${report.file_name}.findings.csv`; a.click()
+        URL.revokeObjectURL(url)
+        return
+      } catch {
+        // expired/unreachable — fall back to the (possibly capped) client list
+      }
+    }
+    const cols = ['severity','ai_generated','category','sheet','material','row','field','sap_field','value','message','rule_id']
+    const rows = report.findings.map(f => cols.map(c => JSON.stringify(f[c] ?? '')).join(','))
+    downloadBlob([cols.join(','), ...rows].join('\n'), `${report.file_name}.findings.csv`, 'text/csv')
+  }
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Page header */}
@@ -221,6 +242,17 @@ export default function ValidatorPage() {
           {/* KPI cards (Readiness Score is the headline) */}
           <KPICards counts={counts} report={report} />
 
+          {/* Large files: the tables below show only the most severe findings */}
+          {report.findings_truncated && (
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+              This file produced <strong>{(report.findings_total ?? 0).toLocaleString()}</strong> findings.
+              The tables below show the <strong>{report.findings.length.toLocaleString()}</strong> most
+              severe (all errors first) — score and counts above cover everything. Use{' '}
+              <button className="underline font-semibold" onClick={() => setTab(3)}>Downloads</button>{' '}
+              to get the complete findings CSV.
+            </div>
+          )}
+
           {/* Tabs */}
           {report.findings?.length > 0 ? (
             <div className="card overflow-hidden">
@@ -273,20 +305,21 @@ export default function ValidatorPage() {
                         JSON Findings
                       </button>
                       <button
-                        onClick={() => {
-                          const cols = ['severity','ai_generated','category','sheet','material','row','field','sap_field','value','message','rule_id']
-                          const rows = report.findings.map(f => cols.map(c => JSON.stringify(f[c] ?? '')).join(','))
-                          const csv  = [cols.join(','), ...rows].join('\n')
-                          downloadBlob(csv, `${report.file_name}.findings.csv`, 'text/csv')
-                        }}
+                        onClick={handleCsvDownload}
                         className="btn-secondary"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
-                        CSV Findings
+                        CSV Findings (complete)
                       </button>
+                      {report.findings_truncated && (
+                        <p className="w-full text-xs text-slate-500">
+                          The HTML and JSON downloads show the most severe findings only; the CSV always
+                          contains all {(report.findings_total ?? 0).toLocaleString()} findings.
+                        </p>
+                      )}
                     </div>
 
                     {/* Inline HTML preview */}

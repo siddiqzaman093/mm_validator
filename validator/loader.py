@@ -16,23 +16,26 @@ Field List sheet header at row 3, values from row 4 onward.
 Sheet Name column (col B = idx 1) holds either:
   - "Basic Data (mandatory)" / "Plant Data (optional)" -> sheet header
   - blank -> field row belonging to last seen sheet header
+
+Sheets are read in ONE sequential pass each (openpyxl read_only streaming for
+.xlsx) and stored in the compact Row structure from models.py — a 60k-row
+workbook must fit comfortably in a 512MB container, which rules out both
+openpyxl's full cell-object model and a dict per cell.
 """
 from __future__ import annotations
 
 import io
 import re
-from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import xlrd
 
-from .models import FieldSpec, SheetData
+from .models import FieldSpec, Row, SheetData
 
 
-# A unified Book wrapper so the rest of the code can work on either xlrd or
-# openpyxl-loaded workbooks transparently.
 class _Book:
-    """Duck-typed shim with .sheet_names() and .sheet_by_name() returning Sheet."""
+    """Uniform wrapper over an xlrd or openpyxl(read-only) workbook that only
+    exposes what the loader needs: sheet names and a sequential row iterator."""
 
     def __init__(self, raw, kind: str):
         self._raw = raw
@@ -43,46 +46,25 @@ class _Book:
             return self._raw.sheet_names()
         return list(self._raw.sheetnames)
 
-    def sheet_by_name(self, name: str) -> "_Sheet":
+    def iter_sheet(self, name: str) -> Iterator[tuple[list, list | None]]:
+        """Yield (values, cell_types) per row. cell_types is None for .xlsx —
+        types are derived from the Python values; xlrd needs real types because
+        it reads dates as plain floats."""
         if self.kind == "xlrd":
-            return _Sheet(self._raw.sheet_by_name(name), "xlrd")
-        return _Sheet(self._raw[name], "openpyxl")
-
-
-class _Sheet:
-    def __init__(self, raw, kind: str):
-        self._raw = raw
-        self.kind = kind
-        if kind == "xlrd":
-            self.nrows = raw.nrows
-            self.ncols = raw.ncols
+            sh = self._raw.sheet_by_name(name)
+            for r in range(sh.nrows):
+                yield sh.row_values(r), sh.row_types(r)
         else:
-            # openpyxl uses 1-based indexing internally
-            self.nrows = raw.max_row or 0
-            self.ncols = raw.max_column or 0
+            ws = self._raw[name]
+            for row in ws.iter_rows(values_only=True):
+                yield list(row), None
 
-    def cell_value(self, r: int, c: int) -> Any:
-        if self.kind == "xlrd":
-            return self._raw.cell_value(r, c)
-        # openpyxl: rows/cols are 1-based
-        v = self._raw.cell(row=r + 1, column=c + 1).value
-        return "" if v is None else v
-
-    def cell_type(self, r: int, c: int) -> int:
-        if self.kind == "xlrd":
-            return self._raw.cell_type(r, c)
-        # rough mapping for openpyxl
-        v = self._raw.cell(row=r + 1, column=c + 1).value
-        if v is None:
-            return xlrd.XL_CELL_EMPTY
-        if isinstance(v, bool):
-            return xlrd.XL_CELL_BOOLEAN
-        if isinstance(v, (int, float)):
-            return xlrd.XL_CELL_NUMBER
-        import datetime as _dt
-        if isinstance(v, (_dt.date, _dt.datetime, _dt.time)):
-            return xlrd.XL_CELL_DATE
-        return xlrd.XL_CELL_TEXT
+    def close(self) -> None:
+        if self.kind == "openpyxl":
+            try:
+                self._raw.close()
+            except Exception:
+                pass
 
 
 HEADER_ROW_SAP_FIELDS = 4
@@ -108,6 +90,11 @@ def _to_int(value) -> int | None:
         return None
 
 
+def _at(values: list, i: int) -> Any:
+    """Index with tolerance — streamed rows can be shorter than the header."""
+    return values[i] if i < len(values) else None
+
+
 def _strip_sheet_suffix(name: str) -> str:
     """ 'Basic Data (mandatory)' -> 'Basic Data' """
     return re.sub(r"\s*\((mandatory|optional)\)\s*$", "", name, flags=re.I).strip()
@@ -115,29 +102,29 @@ def _strip_sheet_suffix(name: str) -> str:
 
 def load_field_list(book: _Book) -> dict[tuple[str, str], FieldSpec]:
     """Return mapping (sheet_name, sap_field) -> FieldSpec."""
-    try:
-        sh = book.sheet_by_name("Field List")
-    except (KeyError, Exception):
+    if "Field List" not in book.sheet_names():
         return {}   # Field List sheet absent — validation continues without it
     specs: dict[tuple[str, str], FieldSpec] = {}
     current_sheet: str | None = None
 
-    for r in range(4, sh.nrows):
-        sheet_cell = _clean(sh.cell_value(r, 1))
+    for r, (values, _types) in enumerate(book.iter_sheet("Field List")):
+        if r < 4:
+            continue
+        sheet_cell = _clean(_at(values, 1))
         if sheet_cell:
             current_sheet = _strip_sheet_suffix(sheet_cell)
             continue
         if not current_sheet:
             continue
 
-        group = _clean(sh.cell_value(r, 2))
-        desc = _clean(sh.cell_value(r, 3))
-        importance = _clean(sh.cell_value(r, 4))
-        ftype = _clean(sh.cell_value(r, 5))
-        length = _to_int(sh.cell_value(r, 6))
-        decimal = _to_int(sh.cell_value(r, 7))
-        sap_struct = _clean(sh.cell_value(r, 8))
-        sap_field = _clean(sh.cell_value(r, 9))
+        group = _clean(_at(values, 2))
+        desc = _clean(_at(values, 3))
+        importance = _clean(_at(values, 4))
+        ftype = _clean(_at(values, 5))
+        length = _to_int(_at(values, 6))
+        decimal = _to_int(_at(values, 7))
+        sap_struct = _clean(_at(values, 8))
+        sap_field = _clean(_at(values, 9))
 
         if not desc and not sap_field:
             continue
@@ -159,49 +146,68 @@ def load_field_list(book: _Book) -> dict[tuple[str, str], FieldSpec]:
 def load_sheet_data(book: _Book, sheet_name: str) -> SheetData | None:
     if sheet_name not in book.sheet_names():
         return None
-    sh = book.sheet_by_name(sheet_name)
-    if sh.nrows <= DATA_START_ROW:
-        sap_structure = _clean(sh.cell_value(3, 0)) if sh.nrows > 3 else ""
-        sap_fields = [_clean(sh.cell_value(HEADER_ROW_SAP_FIELDS, c)) for c in range(sh.ncols)] if sh.nrows > HEADER_ROW_SAP_FIELDS else []
-        return SheetData(sheet=sheet_name, sap_structure=sap_structure, sap_fields=sap_fields, descriptions=[], rows=[])
 
-    sap_structure = _clean(sh.cell_value(3, 0))
-    sap_fields = [_clean(sh.cell_value(HEADER_ROW_SAP_FIELDS, c)) for c in range(sh.ncols)]
-    descriptions = []
-    for c in range(sh.ncols):
-        long = _clean(sh.cell_value(HEADER_ROW_DESC, c))
-        head_name = long.split("\n", 1)[0].rstrip("*").strip() if long else ""
-        descriptions.append(head_name)
+    sap_structure = ""
+    sap_fields: list[str] = []
+    descriptions: list[str] = []
+    # sap_field -> position in each row's compact value tuple; SHARED by every
+    # Row of this sheet.
+    keymap: dict[str, int] = {}
+    cols: list[int] = []          # source column index per keymap entry
+    rows: list[Row] = []
 
-    rows: list[dict] = []
-    for r in range(DATA_START_ROW, sh.nrows):
-        raw = [sh.cell_value(r, c) for c in range(sh.ncols)]
-        if not any(_clean(v) for v in raw):
+    for r, (values, types) in enumerate(book.iter_sheet(sheet_name)):
+        if r == 3:
+            sap_structure = _clean(_at(values, 0))
             continue
-        row = {
-            "_row": r + 1,  # 1-based excel row number
-            "_cells": {},
-        }
-        for c, sap_field in enumerate(sap_fields):
-            if not sap_field:
-                continue
-            ctype = sh.cell_type(r, c)
-            value = sh.cell_value(r, c)
-            # xlrd reads every numeric cell as a float, so an integer-valued
-            # material number / plant / code (e.g. 1054) becomes 1054.0 and
-            # renders with a trailing ".0". Normalise whole numbers to int.
-            # Guard on XL_CELL_NUMBER only — dates are floats too and must not
-            # be truncated; genuine decimals (12.5) are left untouched.
-            if (ctype == xlrd.XL_CELL_NUMBER
-                    and isinstance(value, float) and value.is_integer()):
-                value = int(value)
-            row["_cells"][sap_field] = {
-                "value": value,
-                "type": ctype,
-                "col": c,
-                "description": descriptions[c],
-            }
-        rows.append(row)
+        if r == HEADER_ROW_SAP_FIELDS:
+            sap_fields = [_clean(v) for v in values]
+            for c, sap_field in enumerate(sap_fields):
+                if sap_field:
+                    keymap[sap_field] = len(cols)
+                    cols.append(c)
+            continue
+        if r == HEADER_ROW_DESC:
+            descriptions = []
+            for c in range(len(sap_fields)):
+                long = _clean(_at(values, c))
+                head_name = long.split("\n", 1)[0].rstrip("*").strip() if long else ""
+                descriptions.append(head_name)
+            continue
+        if r < DATA_START_ROW:
+            continue
+
+        if not any(_clean(v) for v in values):
+            continue
+
+        vals: list[Any] = []
+        ctypes: list[int] | None = [] if types is not None else None
+        for c in cols:
+            value = _at(values, c)
+            if types is not None:
+                ctype = types[c] if c < len(types) else xlrd.XL_CELL_EMPTY
+                ctypes.append(ctype)
+                # xlrd reads every numeric cell as a float, so an integer-valued
+                # material number / plant / code (e.g. 1054) becomes 1054.0 and
+                # renders with a trailing ".0". Normalise whole numbers to int.
+                # Guard on XL_CELL_NUMBER only — dates are floats too and must
+                # not be truncated; genuine decimals (12.5) are left untouched.
+                if (ctype == xlrd.XL_CELL_NUMBER
+                        and isinstance(value, float) and value.is_integer()):
+                    value = int(value)
+            else:
+                # openpyxl: dates arrive as datetime objects, so any
+                # integer-valued float here really is a number.
+                if isinstance(value, float) and value.is_integer():
+                    value = int(value)
+            vals.append(value)
+
+        rows.append(Row(
+            row_num=r + 1,  # 1-based excel row number
+            vals=tuple(vals),
+            types=tuple(ctypes) if ctypes is not None else None,
+            keymap=keymap,
+        ))
 
     return SheetData(
         sheet=sheet_name,
@@ -218,7 +224,7 @@ def open_workbook(file_path_or_bytes, file_name: str | None = None) -> _Book:
         data = bytes(file_path_or_bytes)
         if data[:4] == b"PK\x03\x04":  # xlsx is a zip
             from openpyxl import load_workbook
-            wb = load_workbook(io.BytesIO(data), data_only=True, read_only=False)
+            wb = load_workbook(io.BytesIO(data), data_only=True, read_only=True)
             return _Book(wb, "openpyxl")
         return _Book(xlrd.open_workbook(file_contents=data), "xlrd")
     if isinstance(file_path_or_bytes, io.IOBase):
@@ -227,7 +233,7 @@ def open_workbook(file_path_or_bytes, file_name: str | None = None) -> _Book:
     path = str(file_path_or_bytes)
     if path.lower().endswith(".xlsx"):
         from openpyxl import load_workbook
-        wb = load_workbook(path, data_only=True, read_only=False)
+        wb = load_workbook(path, data_only=True, read_only=True)
         return _Book(wb, "openpyxl")
     return _Book(xlrd.open_workbook(path), "xlrd")
 
@@ -245,4 +251,5 @@ def load_all(book: _Book) -> tuple[dict[tuple[str, str], FieldSpec], dict[str, S
         sd = load_sheet_data(book, s)
         if sd is not None:
             data[s] = sd
+    book.close()
     return specs, data

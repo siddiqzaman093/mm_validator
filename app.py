@@ -256,7 +256,7 @@ with tab3:
 
 with tab4:
     html_blob = render_html(report)
-    json_blob = json.dumps(report.to_dict(), indent=2, default=str)
+    json_blob = json.dumps(report.to_dict(max_findings=None), indent=2, default=str)
 
     st.download_button(
         "Download HTML report",

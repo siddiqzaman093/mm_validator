@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import SeverityBadge from './SeverityBadge'
 
+// Rendering thousands of table rows in one expand freezes the tab on huge
+// files — show the first rows and point at the complete CSV download.
+const MAX_ROWS_SHOWN = 300
+
 function SheetGroup({ sheet, findings }) {
   const [open, setOpen] = useState(false)
 
@@ -33,7 +37,7 @@ function SheetGroup({ sheet, findings }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {findings.map((f, i) => (
+              {findings.slice(0, MAX_ROWS_SHOWN).map((f, i) => (
                 <tr key={i} className="hover:bg-slate-50">
                   <td className="px-3 py-2"><SeverityBadge severity={f.severity} /></td>
                   <td className="px-3 py-2 text-xs text-slate-600">{f.category}</td>
@@ -43,6 +47,14 @@ function SheetGroup({ sheet, findings }) {
                   <td className="px-3 py-2 text-xs text-slate-700">{f.message}</td>
                 </tr>
               ))}
+              {findings.length > MAX_ROWS_SHOWN && (
+                <tr>
+                  <td colSpan={6} className="px-3 py-2 text-xs text-slate-400">
+                    … and {(findings.length - MAX_ROWS_SHOWN).toLocaleString()} more —
+                    download the complete CSV from the Downloads tab.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

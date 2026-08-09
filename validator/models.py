@@ -1,12 +1,131 @@
+import datetime as _dt
 from dataclasses import dataclass, field, asdict
 from enum import Enum
-from typing import Any
+from typing import Any, Iterator
+
+import xlrd
 
 
 class Severity(str, Enum):
     ERROR = "error"
     WARNING = "warning"
     INFO = "info"
+
+
+# ---------------------------------------------------------------------------
+# Compact row storage.
+#
+# A 60k-row workbook stored as one dict per cell needs gigabytes; these
+# __slots__ classes keep one value-tuple per row and expose the same dict-like
+# API the check modules already use (row["_row"], row["_cells"],
+# cells.get(field), cells.items(), cell["value"], cell.get("type")), so the
+# checks don't change.
+# ---------------------------------------------------------------------------
+
+def _derive_ctype(v: Any) -> int:
+    """Map a Python value to the xlrd cell-type constants the checks expect."""
+    if v is None:
+        return xlrd.XL_CELL_EMPTY
+    if isinstance(v, bool):
+        return xlrd.XL_CELL_BOOLEAN
+    if isinstance(v, (int, float)):
+        return xlrd.XL_CELL_NUMBER
+    if isinstance(v, (_dt.date, _dt.datetime, _dt.time)):
+        return xlrd.XL_CELL_DATE
+    return xlrd.XL_CELL_TEXT
+
+
+class Cell:
+    """Per-cell view; API-compatible with the old {"value":…, "type":…} dict."""
+    __slots__ = ("value", "type")
+
+    def __init__(self, value: Any, ctype: int):
+        self.value = value
+        self.type = ctype
+
+    def __getitem__(self, key: str) -> Any:
+        if key == "value":
+            return self.value
+        if key == "type":
+            return self.type
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key == "value":
+            return self.value
+        if key == "type":
+            return self.type
+        return default
+
+
+class Cells:
+    """Mapping view over one row's cells, keyed by SAP field code."""
+    __slots__ = ("_row",)
+
+    def __init__(self, row: "Row"):
+        self._row = row
+
+    def _cell(self, i: int) -> Cell:
+        r = self._row
+        v = r.vals[i] if i < len(r.vals) else None
+        t = r.types[i] if r.types is not None else _derive_ctype(v)
+        # The old loader stored "" (never None) for blank cells; keep that.
+        return Cell("" if v is None else v, t)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        i = self._row.keymap.get(key)
+        return self._cell(i) if i is not None else default
+
+    def __getitem__(self, key: str) -> Cell:
+        i = self._row.keymap.get(key)
+        if i is None:
+            raise KeyError(key)
+        return self._cell(i)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._row.keymap
+
+    def __len__(self) -> int:
+        return len(self._row.keymap)
+
+    def items(self) -> Iterator[tuple[str, Cell]]:
+        for k, i in self._row.keymap.items():
+            yield k, self._cell(i)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._row.keymap)
+
+
+class Row:
+    """One data row; API-compatible with the old {"_row":…, "_cells":…} dict.
+
+    keymap is SHARED per sheet (sap_field → index into vals); vals holds only
+    the values of mapped columns; types is None for .xlsx (derived from the
+    value) or a tuple of xlrd cell types for .xls (dates are floats there and
+    can't be told apart from numbers without it).
+    """
+    __slots__ = ("row_num", "vals", "types", "keymap")
+
+    def __init__(self, row_num: int, vals: tuple, types: tuple | None,
+                 keymap: dict[str, int]):
+        self.row_num = row_num
+        self.vals = vals
+        self.types = types
+        self.keymap = keymap
+
+    def __getitem__(self, key: str) -> Any:
+        if key == "_row":
+            return self.row_num
+        if key == "_cells":
+            return Cells(self)
+        raise KeyError(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key == "_row":
+            return self.row_num
+        if key == "_cells":
+            return Cells(self)
+        return default
 
 
 @dataclass
@@ -62,7 +181,7 @@ class SheetData:
     sap_structure: str
     sap_fields: list[str]
     descriptions: list[str]
-    rows: list[dict]
+    rows: list[Row]
 
 
 @dataclass
@@ -143,7 +262,22 @@ class ValidationReport:
             "total_materials": total,
         }
 
-    def to_dict(self) -> dict:
+    # Huge files can yield tens of thousands of findings; shipping them all as
+    # JSON stalls the browser, so the API response carries only the most severe
+    # ones. Counts/readiness above are always computed from the FULL list, and
+    # the complete detail is available as a server-side CSV download.
+    MAX_FINDINGS_JSON = 5000
+
+    def top_findings(self, cap: int | None) -> list[Finding]:
+        """The `cap` most severe findings (errors first), original order within
+        each severity. Returns the full list when it fits."""
+        if cap is None or len(self.findings) <= cap:
+            return self.findings
+        order = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+        return sorted(self.findings, key=lambda f: order.get(f.severity, 9))[:cap]
+
+    def to_dict(self, max_findings: int | None = MAX_FINDINGS_JSON) -> dict:
+        shipped = self.top_findings(max_findings)
         return {
             "file_name": self.file_name,
             "rows_total": self.rows_total,
@@ -155,5 +289,7 @@ class ValidationReport:
             "ai_input_tokens": self.ai_input_tokens,
             "ai_output_tokens": self.ai_output_tokens,
             "elapsed_ms": self.elapsed_ms,
-            "findings": [f.to_dict() for f in self.findings],
+            "findings_total": len(self.findings),
+            "findings_truncated": len(shipped) < len(self.findings),
+            "findings": [f.to_dict() for f in shipped],
         }

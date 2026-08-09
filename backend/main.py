@@ -14,9 +14,13 @@ master data.
 """
 from __future__ import annotations
 
+import csv
 import os
 import sys
+import tempfile
 import time
+import uuid
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Import path: make the project-root `validator/` package importable, NOT a
@@ -33,7 +37,7 @@ if _BACKEND_DIR not in sys.path:
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from auth import authenticate, create_token, verify_token
@@ -66,6 +70,46 @@ app.add_middleware(
 )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+# ---------------------------------------------------------------------------
+# Full-findings CSV store.
+#
+# The JSON response caps findings at the most severe few thousand (see
+# ValidationReport.MAX_FINDINGS_JSON) so 60k-row files don't stall the browser;
+# the COMPLETE findings list is written here as a CSV and served by
+# GET /api/validate/report/{id}. Files expire after an hour — long enough to
+# download, short enough that the free-tier disk never fills up.
+# ---------------------------------------------------------------------------
+
+_REPORT_DIR = Path(tempfile.gettempdir()) / "mm_validator_reports"
+_REPORT_TTL_SECONDS = 60 * 60
+
+_CSV_COLS = ["severity", "ai_generated", "category", "sheet", "material",
+             "row", "field", "sap_field", "value", "message", "rule_id"]
+
+
+def _store_findings_csv(report) -> str:
+    """Write the full findings list to a CSV; return its report id."""
+    _REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    # Expire old reports on each new validation — no background job needed.
+    cutoff = time.time() - _REPORT_TTL_SECONDS
+    for old in _REPORT_DIR.glob("*.csv"):
+        try:
+            if old.stat().st_mtime < cutoff:
+                old.unlink()
+        except OSError:
+            pass
+
+    report_id = uuid.uuid4().hex
+    # utf-8-sig so Excel renders Arabic/non-Latin text correctly on open.
+    with open(_REPORT_DIR / f"{report_id}.csv", "w", newline="",
+              encoding="utf-8-sig") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(_CSV_COLS)
+        for f in report.findings:
+            d = f.to_dict()
+            writer.writerow(["" if d.get(c) is None else d.get(c) for c in _CSV_COLS])
+    return report_id
 
 
 # ---------------------------------------------------------------------------
@@ -226,11 +270,29 @@ async def validate(
         readiness_score=report.readiness()["score"],
     )
 
-    html = render_html(report)
-    result = report.to_dict()
-    result["html_report"] = html  # attach rendered HTML for frontend downloads
+    # Serialization of a big report (HTML + JSON + CSV) is CPU-bound too —
+    # keep it off the event loop like the validation itself.
+    def _build_response() -> dict:
+        result = report.to_dict()   # capped at MAX_FINDINGS_JSON, errors first
+        result["html_report"] = render_html(report)
+        result["csv_report_id"] = _store_findings_csv(report)
+        return result
 
-    return JSONResponse(content=result)
+    return JSONResponse(content=await run_in_threadpool(_build_response))
+
+
+@app.get("/api/validate/report/{report_id}")
+async def download_findings_csv(report_id: str, _user: dict = Depends(get_current_user)):
+    """Download the complete findings CSV for a recent validation."""
+    if not (len(report_id) == 32 and all(c in "0123456789abcdef" for c in report_id)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown report id")
+    path = _REPORT_DIR / f"{report_id}.csv"
+    if not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Report expired or not found — re-run the validation.",
+        )
+    return FileResponse(path, media_type="text/csv", filename="validation-findings.csv")
 
 
 @app.get("/api/admin/usage")

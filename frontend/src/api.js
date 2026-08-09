@@ -47,6 +47,13 @@ export async function validateFile({ file, lookupFile, useAi, apiKey, model, pro
   return res.data // ValidationReport JSON + html_report
 }
 
+// ---- Full findings CSV (server-side, complete even when the JSON response
+// carries only the most severe findings) ----
+export async function downloadFindingsCsv(reportId) {
+  const res = await client.get(`/api/validate/report/${reportId}`, { responseType: 'blob' })
+  return res.data // Blob
+}
+
 // ---- Admin: usage log / dashboard ----
 export async function fetchUsage(days = 30) {
   const res = await client.get('/api/admin/usage', { params: { days } })
