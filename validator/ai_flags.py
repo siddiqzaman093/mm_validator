@@ -16,7 +16,10 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -546,6 +549,22 @@ def _truncate(s: str, n: int = 200) -> str:
     return s if len(s) <= n else s[: n - 1] + "..."
 
 
+def _env_int(var: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(var, "") or default))
+    except ValueError:
+        return default
+
+
+def _dedupe_key(c: AICandidate) -> str:
+    """Candidates asking the AI the same question (same payload, ignoring which
+    material it belongs to) collapse into one — the verdict fans back out."""
+    return json.dumps(
+        {k: v for k, v in sorted(c.payload.items()) if k != "product"},
+        ensure_ascii=False, default=str,
+    )
+
+
 def call_ai_for_candidates(candidates: list[AICandidate], api_key: str | None = None,
                            model: str = "claude-haiku-4-5",
                            provider: str = "anthropic",
@@ -553,14 +572,19 @@ def call_ai_for_candidates(candidates: list[AICandidate], api_key: str | None = 
                            ai_progress_callback=None) -> AIBatchResult:
     """Group candidates by flag type, send minimal payloads, parse JSON.
 
+    Large files are bounded in two ways (a 60k-row workbook can otherwise queue
+    thousands of candidates → hundreds of sequential calls → 15-40 min and real
+    token cost per run):
+      - per flag, at most AI_MAX_CANDIDATES_PER_FLAG (default 250) distinct
+        cases are sent — a deterministic random sample, announced by an
+        AI_SAMPLE_CAPPED info finding so the report never overstates coverage;
+      - calls run on AI_PARALLEL_CALLS worker threads (default 4).
+
     ai_progress_callback(processed: int, total: int) — called after each chunk.
     """
     out = AIBatchResult()
     if not candidates:
         return out
-
-    total_candidates = len(candidates)
-    processed_candidates = 0
 
     env_key = "OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY"
     api_key = api_key or os.environ.get(env_key)
@@ -582,29 +606,70 @@ def call_ai_for_candidates(candidates: list[AICandidate], api_key: str | None = 
     for c in candidates:
         by_flag.setdefault(c.flag, []).append(c)
 
+    max_per_flag = _env_int("AI_MAX_CANDIDATES_PER_FLAG", 250)
+    rng = random.Random(42)  # fixed seed: re-running the same file samples the same rows
+
+    # Build the work list: chunks of member-groups. Each member-group is the
+    # list of candidates sharing one deduped question; [0] is the representative
+    # actually sent to the AI.
+    jobs: list[tuple[str, list[list[AICandidate]]]] = []
     for flag, group in by_flag.items():
-        for chunk_start in range(0, len(group), max_per_call):
-            chunk = group[chunk_start:chunk_start + max_per_call]
-            items_payload = []
-            for i, c in enumerate(chunk):
-                payload = {k: (_truncate(v, 160) if isinstance(v, str) else v) for k, v in c.payload.items()}
-                items_payload.append({"id": i, **payload})
+        dedup: dict[str, list[AICandidate]] = {}
+        for c in group:
+            dedup.setdefault(_dedupe_key(c), []).append(c)
+        reps: list[list[AICandidate]] = list(dedup.values())
 
-            user_msg = (
-                FLAG_INSTRUCTIONS[flag]
-                + "\n\nItems:\n"
-                + json.dumps(items_payload, ensure_ascii=False)
-                + "\n\nRespond with JSON only."
-            )
+        if len(reps) > max_per_flag:
+            keep = set(rng.sample(range(len(reps)), max_per_flag))
+            sampled = [m for i, m in enumerate(reps) if i in keep]
+            skipped_rows = sum(len(m) for i, m in enumerate(reps) if i not in keep)
+            out.findings.append(Finding(
+                severity=Severity.INFO,
+                category=f"AI/{_friendly_flag(flag)}",
+                sheet=group[0].sheet, row=None,
+                field=_field_for_flag(flag), sap_field=_sap_for_flag(flag),
+                message=(f"AI reviewed a representative sample of {max_per_flag} of "
+                         f"{len(reps)} distinct cases ({len(group)} flagged rows) for this "
+                         f"check; {skipped_rows} rows were not individually reviewed. "
+                         f"Raise AI_MAX_CANDIDATES_PER_FLAG to widen coverage."),
+                rule_id="AI_SAMPLE_CAPPED",
+            ))
+            reps = sampled
 
-            if provider == "openai":
-                text, in_tok, out_tok, err = _call_openai(api_key, model, user_msg)
-            else:
-                text, in_tok, out_tok, err = _call_anthropic(api_key, model, user_msg)
+        for i in range(0, len(reps), max_per_call):
+            jobs.append((flag, reps[i:i + max_per_call]))
 
-            if err:
-                for c in chunk:
-                    out.findings.append(Finding(
+    # Progress is counted in candidate rows (duplicates included) so the
+    # numbers shown to admins line up with "flagged rows", not API internals.
+    total_rows = sum(len(m) for _, chunk in jobs for m in chunk)
+    lock = threading.Lock()
+    processed_rows = 0
+
+    def _process(flag: str, chunk: list[list[AICandidate]]):
+        items_payload = []
+        for i, members in enumerate(chunk):
+            payload = {k: (_truncate(v, 160) if isinstance(v, str) else v)
+                       for k, v in members[0].payload.items()}
+            items_payload.append({"id": i, **payload})
+
+        user_msg = (
+            FLAG_INSTRUCTIONS[flag]
+            + "\n\nItems:\n"
+            + json.dumps(items_payload, ensure_ascii=False)
+            + "\n\nRespond with JSON only."
+        )
+
+        if provider == "openai":
+            text, in_tok, out_tok, err = _call_openai(api_key, model, user_msg)
+        else:
+            text, in_tok, out_tok, err = _call_anthropic(api_key, model, user_msg)
+
+        findings: list[Finding] = []
+        calls = 0
+        if err:
+            for members in chunk:
+                for c in members:
+                    findings.append(Finding(
                         severity=Severity.INFO,
                         category=f"AI/{flag}",
                         sheet=c.sheet, row=c.row,
@@ -613,58 +678,61 @@ def call_ai_for_candidates(candidates: list[AICandidate], api_key: str | None = 
                         material=c.payload.get("product", ""),
                         rule_id="AI_CALL_FAILED",
                     ))
-                continue
-
-            out.calls += 1
-            out.input_tokens += in_tok
-            out.output_tokens += out_tok
-
+        else:
+            calls = 1
             parsed = _safe_json(text)
             if not parsed:
-                for c in chunk:
-                    out.findings.append(Finding(
-                        severity=Severity.INFO,
-                        category=f"AI/{flag}",
-                        sheet=c.sheet, row=c.row,
-                        field="AI parse error", sap_field=None,
-                        message=f"AI replied with non-JSON text (truncated): {text[:160]}",
-                        material=c.payload.get("product", ""),
-                        rule_id="AI_PARSE_ERROR",
-                    ))
-                continue
+                for members in chunk:
+                    for c in members:
+                        findings.append(Finding(
+                            severity=Severity.INFO,
+                            category=f"AI/{flag}",
+                            sheet=c.sheet, row=c.row,
+                            field="AI parse error", sap_field=None,
+                            message=f"AI replied with non-JSON text (truncated): {text[:160]}",
+                            material=c.payload.get("product", ""),
+                            rule_id="AI_PARSE_ERROR",
+                        ))
+            else:
+                results = parsed.get("results") if isinstance(parsed, dict) else None
+                for res in results if isinstance(results, list) else []:
+                    if not isinstance(res, dict):
+                        continue
+                    idx = res.get("id")
+                    if not isinstance(idx, int) or idx < 0 or idx >= len(chunk):
+                        continue
+                    if not res.get("issue"):
+                        continue
+                    sev_str = (res.get("severity") or "warning").lower()
+                    severity = Severity.WARNING if sev_str == "warning" else Severity.INFO
+                    reason = str(res.get("reason") or "")[:300]
+                    for cand in chunk[idx]:   # fan the verdict out to duplicates
+                        findings.append(Finding(
+                            severity=severity,
+                            category=f"AI/{_friendly_flag(flag)}",
+                            sheet=cand.sheet, row=cand.row,
+                            field=_field_for_flag(flag), sap_field=_sap_for_flag(flag),
+                            message=reason,
+                            material=cand.payload.get("product", ""),
+                            value=_value_for_flag(flag, cand.payload),
+                            rule_id=f"AI_{flag.upper()}",
+                            ai_generated=True,
+                        ))
+        return findings, in_tok, out_tok, calls, sum(len(m) for m in chunk)
 
-            results = parsed.get("results") if isinstance(parsed, dict) else None
-            if not isinstance(results, list):
-                continue
-
-            for res in results:
-                if not isinstance(res, dict):
-                    continue
-                idx = res.get("id")
-                if not isinstance(idx, int) or idx < 0 or idx >= len(chunk):
-                    continue
-                if not res.get("issue"):
-                    continue
-                cand = chunk[idx]
-                sev_str = (res.get("severity") or "warning").lower()
-                severity = Severity.WARNING if sev_str == "warning" else Severity.INFO
-                reason = str(res.get("reason") or "")[:300]
-                out.findings.append(Finding(
-                    severity=severity,
-                    category=f"AI/{_friendly_flag(flag)}",
-                    sheet=cand.sheet, row=cand.row,
-                    field=_field_for_flag(flag), sap_field=_sap_for_flag(flag),
-                    message=reason,
-                    material=cand.payload.get("product", ""),
-                    value=_value_for_flag(flag, cand.payload),
-                    rule_id=f"AI_{flag.upper()}",
-                    ai_generated=True,
-                ))
-
-            # Report sub-progress after each chunk
-            processed_candidates += len(chunk)
-            if ai_progress_callback:
-                ai_progress_callback(processed_candidates, total_candidates)
+    workers = max(1, min(_env_int("AI_PARALLEL_CALLS", 4), len(jobs)))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_process, flag, chunk) for flag, chunk in jobs]
+        for future in as_completed(futures):
+            findings, in_tok, out_tok, calls, n_rows = future.result()
+            with lock:
+                out.findings.extend(findings)
+                out.input_tokens += in_tok
+                out.output_tokens += out_tok
+                out.calls += calls
+                processed_rows += n_rows
+                if ai_progress_callback:
+                    ai_progress_callback(processed_rows, total_rows)
 
     return out
 
