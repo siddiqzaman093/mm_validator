@@ -8,12 +8,13 @@ import ResultsView from '../components/ResultsView'
 const ACTIVE_JOB_KEY = 'mm_validator_active_job'
 
 /** Reusable drag-and-drop file picker. */
-function DropZone({ file, onFile, accept, title, hint, required }) {
+function DropZone({ file, onFile, accept, title, hint, required, disabled }) {
   const [dragging, setDrag] = useState(false)
   const inputRef = useRef(null)
 
   function handleDrop(e) {
     e.preventDefault(); setDrag(false)
+    if (disabled) return
     const f = e.dataTransfer.files[0]
     if (f) onFile(f)
   }
@@ -25,12 +26,15 @@ function DropZone({ file, onFile, accept, title, hint, required }) {
         {required && <span className="text-red-500 ml-1">*</span>}
       </label>
       <div
-        onDragOver={e => { e.preventDefault(); setDrag(true) }}
+        onDragOver={e => { e.preventDefault(); if (!disabled) setDrag(true) }}
         onDragLeave={() => setDrag(false)}
         onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
-        className={`relative flex flex-col items-center justify-center h-32 rounded-xl border-2 border-dashed cursor-pointer transition-colors
-          ${dragging ? 'border-blue-400 bg-blue-50' : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50'}`}
+        onClick={() => { if (!disabled) inputRef.current?.click() }}
+        className={`relative flex flex-col items-center justify-center h-32 rounded-xl border-2 border-dashed transition-colors
+          ${disabled
+            ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed'
+            : dragging ? 'border-blue-400 bg-blue-50 cursor-pointer'
+            : 'border-slate-300 hover:border-blue-400 hover:bg-slate-50 cursor-pointer'}`}
       >
         <input
           ref={inputRef}
@@ -167,6 +171,7 @@ export default function ValidatorPage() {
               accept=".xlsx"
               title="Step 1 — Master Lookup File"
               required
+              disabled={running}
               hint="Drop Product Master Lookup File .xlsx here, or click to browse"
             />
             <DropZone
@@ -175,6 +180,7 @@ export default function ValidatorPage() {
               accept=".xls,.xlsx"
               title="Step 2 — Material Master Data"
               required
+              disabled={running}
               hint="Drop Product Master Creation .xls or .xlsx here, or click to browse"
             />
             {!lookupFile && (
@@ -195,9 +201,10 @@ export default function ValidatorPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1">AI-Enabled Validations</label>
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setUseAi(v => !v)}
+                  onClick={() => { if (!running) setUseAi(v => !v) }}
+                  disabled={running}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none
-                    ${useAi ? 'bg-blue-600' : 'bg-slate-200'}`}
+                    ${useAi ? 'bg-blue-600' : 'bg-slate-200'} ${running ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform
                     ${useAi ? 'translate-x-6' : 'translate-x-1'}`} />
