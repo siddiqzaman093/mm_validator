@@ -622,14 +622,14 @@ def _token_overlap(tokens_a: frozenset, tokens_b: frozenset) -> float:
 
 
 def check_similar_descriptions(basic: SheetData | None,
-                                seq_threshold: float = 0.50,
+                                seq_threshold: float = 0.75,
                                 overlap_threshold: float = 0.85,
                                 max_findings: int = 50) -> list[Finding]:
     """
     Warning when two materials have descriptions that are similar enough to be
     potential duplicate entries.  Two independent signals are combined:
 
-      1. SequenceMatcher ratio >= seq_threshold (0.90)
+      1. SequenceMatcher ratio >= seq_threshold (0.75)
          Catches near-identical strings and word-order variants after token sorting.
          e.g. 'CHOCOLATE MILK 500G' vs 'MILK CHOCOLATE 500G'
 
