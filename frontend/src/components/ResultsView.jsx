@@ -47,12 +47,12 @@ export default function ResultsView({ report }) {
       {/* KPI cards (Readiness Score is the headline) */}
       <KPICards counts={counts} report={report} />
 
-      {/* Large files: the tables below show only the most severe findings */}
+      {/* Large files: the tables below show samples per category */}
       {report.findings_truncated && (
         <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
           This file produced <strong>{(report.findings_total ?? 0).toLocaleString()}</strong> findings.
-          The tables below show the <strong>{report.findings.length.toLocaleString()}</strong> most
-          severe (all errors first) — score and counts above cover everything. Use{' '}
+          Every category and sheet is listed below with its true totals; expanding one shows its most
+          severe rows (up to 300). Use{' '}
           <button className="underline font-semibold" onClick={() => setTab(3)}>Downloads</button>{' '}
           to get the complete findings CSV.
         </div>
@@ -77,8 +77,8 @@ export default function ResultsView({ report }) {
           </div>
 
           <div className="p-5">
-            {activeTab === 0 && <FindingsByCategory findings={report.findings} />}
-            {activeTab === 1 && <FindingsBySheet    findings={report.findings} />}
+            {activeTab === 0 && <FindingsByCategory findings={report.findings} summaries={report.category_counts} />}
+            {activeTab === 1 && <FindingsBySheet    findings={report.findings} summaries={report.sheet_counts} />}
             {activeTab === 2 && <FindingsTable      findings={report.findings} />}
             {activeTab === 3 && (
               <div className="space-y-4">

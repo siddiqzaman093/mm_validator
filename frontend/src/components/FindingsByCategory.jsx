@@ -2,13 +2,17 @@ import { useState } from 'react'
 import SeverityBadge from './SeverityBadge'
 
 // Rendering thousands of table rows in one expand freezes the tab on huge
-// files — show the first rows and point at the complete CSV download.
+// files — show the sampled rows and point at the complete CSV download.
 const MAX_ROWS_SHOWN = 300
 
-function CategoryGroup({ category, findings }) {
+function CategoryGroup({ category, findings, summary }) {
   const [open, setOpen] = useState(false)
-  const errorCount   = findings.filter(f => f.severity === 'error').length
-  const warningCount = findings.filter(f => f.severity === 'warning').length
+  // True totals come from the server summary (covers ALL findings); fall back
+  // to counting the shipped rows for small files / older responses.
+  const errorCount   = summary?.error   ?? findings.filter(f => f.severity === 'error').length
+  const warningCount = summary?.warning ?? findings.filter(f => f.severity === 'warning').length
+  const total        = summary?.total   ?? findings.length
+  const shown        = Math.min(findings.length, MAX_ROWS_SHOWN)
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -22,11 +26,11 @@ function CategoryGroup({ category, findings }) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           <span className="text-sm font-semibold text-slate-700">{category}</span>
-          <span className="text-xs text-slate-400">({findings.length})</span>
+          <span className="text-xs text-slate-400">({total.toLocaleString()})</span>
         </div>
         <div className="flex gap-2">
-          {errorCount   > 0 && <span className="badge-error">{errorCount} errors</span>}
-          {warningCount > 0 && <span className="badge-warning">{warningCount} warnings</span>}
+          {errorCount   > 0 && <span className="badge-error">{errorCount.toLocaleString()} errors</span>}
+          {warningCount > 0 && <span className="badge-warning">{warningCount.toLocaleString()} warnings</span>}
         </div>
       </button>
 
@@ -53,10 +57,10 @@ function CategoryGroup({ category, findings }) {
                   <td className="px-3 py-2 text-xs text-slate-700">{f.message}</td>
                 </tr>
               ))}
-              {findings.length > MAX_ROWS_SHOWN && (
+              {total > shown && (
                 <tr>
                   <td colSpan={6} className="px-3 py-2 text-xs text-slate-400">
-                    … and {(findings.length - MAX_ROWS_SHOWN).toLocaleString()} more —
+                    Showing {shown.toLocaleString()} of {total.toLocaleString()} —
                     download the complete CSV from the Downloads tab.
                   </td>
                 </tr>
@@ -69,16 +73,28 @@ function CategoryGroup({ category, findings }) {
   )
 }
 
-export default function FindingsByCategory({ findings }) {
+export default function FindingsByCategory({ findings, summaries }) {
   const groups = {}
   for (const f of findings) {
     if (!groups[f.category]) groups[f.category] = []
     groups[f.category].push(f)
   }
+  // The server summary lists EVERY category with true totals — the shipped
+  // findings are only samples. Fall back to the shipped rows when absent.
+  const cats = summaries?.length
+    ? summaries.map(s => s.name)
+    : Object.keys(groups).sort()
+  const byName = Object.fromEntries((summaries ?? []).map(s => [s.name, s]))
+
   return (
     <div className="space-y-3">
-      {Object.entries(groups).sort().map(([cat, items]) => (
-        <CategoryGroup key={cat} category={cat} findings={items} />
+      {cats.map((cat) => (
+        <CategoryGroup
+          key={cat}
+          category={cat}
+          findings={groups[cat] ?? []}
+          summary={byName[cat]}
+        />
       ))}
     </div>
   )

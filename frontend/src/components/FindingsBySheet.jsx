@@ -2,11 +2,15 @@ import { useState } from 'react'
 import SeverityBadge from './SeverityBadge'
 
 // Rendering thousands of table rows in one expand freezes the tab on huge
-// files — show the first rows and point at the complete CSV download.
+// files — show the sampled rows and point at the complete CSV download.
 const MAX_ROWS_SHOWN = 300
 
-function SheetGroup({ sheet, findings }) {
+function SheetGroup({ sheet, findings, summary }) {
   const [open, setOpen] = useState(false)
+  const errorCount   = summary?.error   ?? findings.filter(f => f.severity === 'error').length
+  const warningCount = summary?.warning ?? findings.filter(f => f.severity === 'warning').length
+  const total        = summary?.total   ?? findings.length
+  const shown        = Math.min(findings.length, MAX_ROWS_SHOWN)
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -20,7 +24,11 @@ function SheetGroup({ sheet, findings }) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           <span className="text-sm font-semibold text-slate-700 font-mono">{sheet}</span>
-          <span className="text-xs text-slate-400">({findings.length} findings)</span>
+          <span className="text-xs text-slate-400">({total.toLocaleString()} findings)</span>
+        </div>
+        <div className="flex gap-2">
+          {errorCount   > 0 && <span className="badge-error">{errorCount.toLocaleString()} errors</span>}
+          {warningCount > 0 && <span className="badge-warning">{warningCount.toLocaleString()} warnings</span>}
         </div>
       </button>
 
@@ -47,10 +55,10 @@ function SheetGroup({ sheet, findings }) {
                   <td className="px-3 py-2 text-xs text-slate-700">{f.message}</td>
                 </tr>
               ))}
-              {findings.length > MAX_ROWS_SHOWN && (
+              {total > shown && (
                 <tr>
                   <td colSpan={6} className="px-3 py-2 text-xs text-slate-400">
-                    … and {(findings.length - MAX_ROWS_SHOWN).toLocaleString()} more —
+                    Showing {shown.toLocaleString()} of {total.toLocaleString()} —
                     download the complete CSV from the Downloads tab.
                   </td>
                 </tr>
@@ -63,16 +71,26 @@ function SheetGroup({ sheet, findings }) {
   )
 }
 
-export default function FindingsBySheet({ findings }) {
+export default function FindingsBySheet({ findings, summaries }) {
   const groups = {}
   for (const f of findings) {
     if (!groups[f.sheet]) groups[f.sheet] = []
     groups[f.sheet].push(f)
   }
+  const sheets = summaries?.length
+    ? summaries.map(s => s.name)
+    : Object.keys(groups).sort()
+  const byName = Object.fromEntries((summaries ?? []).map(s => [s.name, s]))
+
   return (
     <div className="space-y-3">
-      {Object.entries(groups).sort().map(([sheet, items]) => (
-        <SheetGroup key={sheet} sheet={sheet} findings={items} />
+      {sheets.map((sheet) => (
+        <SheetGroup
+          key={sheet}
+          sheet={sheet}
+          findings={groups[sheet] ?? []}
+          summary={byName[sheet]}
+        />
       ))}
     </div>
   )

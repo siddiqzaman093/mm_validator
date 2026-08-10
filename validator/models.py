@@ -263,18 +263,44 @@ class ValidationReport:
         }
 
     # Huge files can yield tens of thousands of findings; shipping them all as
-    # JSON stalls the browser, so the API response carries only the most severe
-    # ones. Counts/readiness above are always computed from the FULL list, and
-    # the complete detail is available as a server-side CSV download.
+    # JSON stalls the browser. The response instead carries a SAMPLE PER
+    # CATEGORY (most severe first) so every category appears in the UI with
+    # its true totals — a purely global most-severe cut would fill the whole
+    # budget with the single biggest error category. Counts/readiness are
+    # always computed from the FULL list, and the complete detail is available
+    # as a server-side CSV download.
     MAX_FINDINGS_JSON = 5000
+    SAMPLES_PER_GROUP = 200
+
+    _SEV_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 
     def top_findings(self, cap: int | None) -> list[Finding]:
-        """The `cap` most severe findings (errors first), original order within
-        each severity. Returns the full list when it fits."""
+        """Representative findings: up to SAMPLES_PER_GROUP per category
+        (errors first, original order within each severity), globally bounded
+        by `cap`. Returns the full list when it fits."""
         if cap is None or len(self.findings) <= cap:
             return self.findings
-        order = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
-        return sorted(self.findings, key=lambda f: order.get(f.severity, 9))[:cap]
+        by_cat: dict[str, list[Finding]] = {}
+        for f in self.findings:
+            by_cat.setdefault(f.category, []).append(f)
+        shipped: list[Finding] = []
+        for cat in sorted(by_cat):
+            group = sorted(by_cat[cat], key=lambda f: self._SEV_ORDER.get(f.severity, 9))
+            shipped.extend(group[:self.SAMPLES_PER_GROUP])
+        if len(shipped) > cap:   # very many categories — trim globally
+            shipped = sorted(shipped, key=lambda f: self._SEV_ORDER.get(f.severity, 9))[:cap]
+        return shipped
+
+    def _group_counts(self, key) -> list[dict]:
+        """True severity totals per group (computed from ALL findings)."""
+        out: dict[str, dict] = {}
+        for f in self.findings:
+            g = out.setdefault(key(f), {"error": 0, "warning": 0, "info": 0})
+            g[f.severity.value] += 1
+        return [
+            {"name": name, **c, "total": c["error"] + c["warning"] + c["info"]}
+            for name, c in sorted(out.items())
+        ]
 
     def to_dict(self, max_findings: int | None = MAX_FINDINGS_JSON) -> dict:
         shipped = self.top_findings(max_findings)
@@ -291,5 +317,9 @@ class ValidationReport:
             "elapsed_ms": self.elapsed_ms,
             "findings_total": len(self.findings),
             "findings_truncated": len(shipped) < len(self.findings),
+            # True totals for every category/sheet so the UI can list ALL
+            # groups even when only samples of their rows are shipped.
+            "category_counts": self._group_counts(lambda f: f.category),
+            "sheet_counts": self._group_counts(lambda f: f.sheet),
             "findings": [f.to_dict() for f in shipped],
         }
