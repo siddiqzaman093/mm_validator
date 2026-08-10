@@ -1,0 +1,4 @@
+# Test/dev-only dependencies — not installed on Render.
+# Run tests from the repo root:  python -m pytest backend/tests -q
+-r requirements.txt
+pytest>=8.0

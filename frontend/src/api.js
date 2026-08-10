@@ -119,11 +119,9 @@ export async function downloadJobCsv(jobId) {
   return res.data // Blob
 }
 
-// ---- Full findings CSV (server-side, complete even when the JSON response
-// carries only the most severe findings) ----
-export async function downloadFindingsCsv(reportId) {
-  const res = await client.get(`/api/validate/report/${reportId}`, { responseType: 'blob' })
-  return res.data // Blob
+export async function deleteJob(jobId) {
+  const res = await client.delete(`/api/jobs/${jobId}`)
+  return res.data // { deleted }
 }
 
 // ---- Admin: usage log / dashboard ----

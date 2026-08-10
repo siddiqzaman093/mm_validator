@@ -2,10 +2,16 @@
 SAP MM Validator — FastAPI backend.
 
 Endpoints:
-  POST /api/auth/login    → { access_token, token_type }
-  POST /api/validate      → ValidationReport JSON (includes html_report field)
-  GET  /api/admin/usage   → usage log / dashboard data (admin only)
-  GET  /api/health        → { status: "ok" }
+  POST   /api/auth/login       → { access_token, token_type }
+  POST   /api/jobs             → queue a validation, returns { job_id }
+  GET    /api/jobs             → the caller's jobs (admin: ?all=true)
+  GET    /api/jobs/{id}        → job status + progress + summary
+  GET    /api/jobs/{id}/result → stored ValidationReport JSON (+ html_report)
+  GET    /api/jobs/{id}/csv    → complete findings CSV
+  DELETE /api/jobs/{id}        → remove a finished/queued job and its data
+  GET    /api/admin/usage      → usage log / dashboard data (admin only)
+  GET    /api/admin/active     → validations running right now (admin only)
+  GET    /api/health           → { status: "ok" }
 
 This backend imports the *canonical* validator package that lives at the project
 root (``mm_validator/validator``), so the web app runs exactly the same checks as
@@ -14,13 +20,9 @@ master data.
 """
 from __future__ import annotations
 
-import csv
 import os
 import sys
-import tempfile
 import time
-import uuid
-from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Import path: make the project-root `validator/` package importable, NOT a
@@ -37,15 +39,19 @@ if _BACKEND_DIR not in sys.path:
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from auth import authenticate, create_token, verify_token
-from usage_log import fetch_usage, log_session
-from validator import run_validation
-from validator.report import render_html
+from usage_log import fetch_usage
 
 import jobs as jobs_mod
+
+# Reject uploads beyond this size before they reach the database — the
+# largest real-world Migration Cockpit workbooks seen so far are ~2MB, so
+# 25MB leaves generous headroom while keeping the Neon free tier safe.
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "") or 25)
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -78,55 +84,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 async def _start_job_worker() -> None:
     # Also re-queues jobs a previous process left unfinished (Render restarts).
     jobs_mod.start_worker()
-
-# ---------------------------------------------------------------------------
-# Full-findings CSV store.
-#
-# The JSON response caps findings at the most severe few thousand (see
-# ValidationReport.MAX_FINDINGS_JSON) so 60k-row files don't stall the browser;
-# the COMPLETE findings list is written here as a CSV and served by
-# GET /api/validate/report/{id}. Files expire after an hour — long enough to
-# download, short enough that the free-tier disk never fills up.
-# ---------------------------------------------------------------------------
-
-_REPORT_DIR = Path(tempfile.gettempdir()) / "mm_validator_reports"
-_REPORT_TTL_SECONDS = 60 * 60
-
-# ---------------------------------------------------------------------------
-# Active-run registry: run_key -> live progress of an in-flight validation.
-# In-memory by design — this deployment is a single uvicorn worker, and the
-# list answers "what is the server doing right now", so losing it on a
-# restart is fine (a restart also kills the runs it described).
-# ---------------------------------------------------------------------------
-_ACTIVE_RUNS: dict[str, dict] = {}
-
-_CSV_COLS = ["severity", "ai_generated", "category", "sheet", "material",
-             "row", "field", "sap_field", "value", "message", "rule_id"]
-
-
-def _store_findings_csv(report) -> str:
-    """Write the full findings list to a CSV; return its report id."""
-    _REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    # Expire old reports on each new validation — no background job needed.
-    cutoff = time.time() - _REPORT_TTL_SECONDS
-    for old in _REPORT_DIR.glob("*.csv"):
-        try:
-            if old.stat().st_mtime < cutoff:
-                old.unlink()
-        except OSError:
-            pass
-
-    report_id = uuid.uuid4().hex
-    # utf-8-sig so Excel renders Arabic/non-Latin text correctly on open.
-    with open(_REPORT_DIR / f"{report_id}.csv", "w", newline="",
-              encoding="utf-8-sig") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(_CSV_COLS)
-        for f in report.findings:
-            d = f.to_dict()
-            writer.writerow(["" if d.get(c) is None else d.get(c) for c in _CSV_COLS])
-    return report_id
-
 
 # ---------------------------------------------------------------------------
 # Auth helpers
@@ -181,164 +138,6 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     }
 
 
-@app.post("/api/validate")
-async def validate(
-    file: UploadFile = File(..., description="SAP Product Master Creation .xls/.xlsx"),
-    lookup_file: UploadFile | None = File(
-        None, description="Product Master Lookup File .xlsx (drives mandatory-field, "
-                          "type, product-type and plant→profit-center checks)"),
-    use_ai: bool = Form(False, description="Enable AI warning flags"),
-    api_key: str = Form("", description="AI provider API key (required when use_ai=true)"),
-    model: str = Form("claude-haiku-4-5", description="Model id to use"),
-    provider: str = Form("anthropic", description="AI provider: 'anthropic' or 'openai'"),
-    user: dict = Depends(get_current_user),
-):
-    """
-    Validate an uploaded SAP migration template.
-
-    Returns the full ValidationReport as JSON, with an extra `html_report`
-    field containing the rendered HTML report (for preview / download).
-    """
-    if not file.filename or not file.filename.lower().endswith((".xls", ".xlsx")):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only .xls and .xlsx files are supported.",
-        )
-
-    contents = await file.read()
-
-    # Lookup file is optional at the API layer; the UI makes it mandatory.
-    lookup_bytes: bytes | None = None
-    if lookup_file is not None and lookup_file.filename:
-        if not lookup_file.filename.lower().endswith(".xlsx"):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="The lookup file must be a .xlsx file.",
-            )
-        lookup_bytes = await lookup_file.read()
-
-    provider = (provider or "anthropic").strip().lower()
-    if provider not in ("anthropic", "openai"):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="provider must be 'anthropic' or 'openai'.",
-        )
-
-    # Resolve the AI key: a key posted by the client wins; otherwise fall back to
-    # the server-side environment variable. This is how the deployed app supplies
-    # the key without ever shipping it to browsers.
-    env_var = "OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY"
-    effective_key = api_key.strip() or os.environ.get(env_var, "").strip()
-    ai_enabled = use_ai and bool(effective_key)
-
-    started = time.monotonic()
-
-    # Register this run so admins can see in-flight validations (including
-    # orphaned ones whose browser has gone away — the server keeps working).
-    run_key = uuid.uuid4().hex
-    run_entry = {
-        "username": user["username"],
-        "file_name": file.filename,
-        "ai_enabled": ai_enabled,
-        "started_ts": time.time(),
-        "stage": "Starting…",
-        "pct": 0,
-        "ai_done": 0,
-        "ai_total": 0,
-    }
-    _ACTIVE_RUNS[run_key] = run_entry
-
-    def _on_progress(pct: int, msg: str) -> None:
-        run_entry["pct"] = pct
-        run_entry["stage"] = msg
-
-    def _on_ai_progress(done: int, total: int) -> None:
-        run_entry["ai_done"] = done
-        run_entry["ai_total"] = total
-
-    try:
-        # Run the blocking validation (Excel parsing + any OpenAI call) in a
-        # worker thread so it never blocks the event loop — otherwise a single
-        # in-flight validation would freeze /api/health and Render would kill the
-        # instance (HTTP health check timeout) mid-request.
-        report = await run_in_threadpool(
-            run_validation,
-            contents,
-            file_name=file.filename,
-            lookup_bytes=lookup_bytes,
-            use_ai=ai_enabled,
-            api_key=effective_key or None,
-            model=model,
-            provider=provider,
-            progress_callback=_on_progress,
-            ai_progress_callback=_on_ai_progress,
-        )
-    except Exception as exc:  # noqa: BLE001
-        # Log writes may hit a remote Postgres — keep them off the event loop too.
-        await run_in_threadpool(
-            log_session,
-            username=user["username"],
-            role=user.get("role", "user"),
-            file_name=file.filename,
-            ai_used=ai_enabled,
-            provider=provider,
-            model=model,
-            duration_ms=int((time.monotonic() - started) * 1000),
-            status="error",
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Validation failed: {exc}",
-        ) from exc
-    finally:
-        _ACTIVE_RUNS.pop(run_key, None)
-
-    counts = report.counts()
-    await run_in_threadpool(
-        log_session,
-        username=user["username"],
-        role=user.get("role", "user"),
-        file_name=file.filename,
-        materials=report.materials_total or report.rows_total,
-        errors=counts.get("error", 0),
-        warnings=counts.get("warning", 0),
-        infos=counts.get("info", 0),
-        ai_used=ai_enabled,
-        provider=provider,
-        model=model,
-        ai_calls=report.ai_calls,
-        input_tokens=report.ai_input_tokens,
-        output_tokens=report.ai_output_tokens,
-        duration_ms=int((time.monotonic() - started) * 1000),
-        readiness_score=report.readiness()["score"],
-    )
-
-    # Serialization of a big report (HTML + JSON + CSV) is CPU-bound too —
-    # keep it off the event loop like the validation itself.
-    def _build_response() -> dict:
-        result = report.to_dict()   # capped at MAX_FINDINGS_JSON, errors first
-        result["html_report"] = render_html(report)
-        result["csv_report_id"] = _store_findings_csv(report)
-        return result
-
-    return JSONResponse(content=await run_in_threadpool(_build_response))
-
-
-@app.get("/api/validate/report/{report_id}")
-async def download_findings_csv(report_id: str, _user: dict = Depends(get_current_user)):
-    """Download the complete findings CSV for a recent validation."""
-    if not (len(report_id) == 32 and all(c in "0123456789abcdef" for c in report_id)):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown report id")
-    path = _REPORT_DIR / f"{report_id}.csv"
-    if not path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Report expired or not found — re-run the validation.",
-        )
-    return FileResponse(path, media_type="text/csv", filename="validation-findings.csv")
-
-
 # ---------------------------------------------------------------------------
 # Background validation jobs
 # ---------------------------------------------------------------------------
@@ -349,6 +148,15 @@ def _authorize_job(job: dict | None, user: dict) -> dict:
     if job["username"] != user["username"] and user.get("role") != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your job")
     return job
+
+
+def check_upload_size(n_bytes: int, filename: str) -> None:
+    if n_bytes > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(f"'{filename}' is {n_bytes / 1024 / 1024:.1f}MB — uploads are "
+                    f"limited to {MAX_UPLOAD_MB}MB."),
+        )
 
 
 @app.post("/api/jobs")
@@ -384,19 +192,26 @@ async def submit_validation_job(
                 detail="The lookup file must be a .xlsx file.",
             )
         lookup_bytes = await lookup_file.read()
+        check_upload_size(len(lookup_bytes), lookup_file.filename)
 
     contents = await file.read()
-    job_id = await run_in_threadpool(
-        jobs_mod.submit_job,
-        username=user["username"],
-        role=user.get("role", "user"),
-        file_name=file.filename,
-        file_bytes=contents,
-        lookup_bytes=lookup_bytes,
-        use_ai=use_ai,
-        provider=provider,
-        model=model,
-    )
+    check_upload_size(len(contents), file.filename)
+    try:
+        job_id = await run_in_threadpool(
+            jobs_mod.submit_job,
+            username=user["username"],
+            role=user.get("role", "user"),
+            file_name=file.filename,
+            file_bytes=contents,
+            lookup_bytes=lookup_bytes,
+            use_ai=use_ai,
+            provider=provider,
+            model=model,
+        )
+    except jobs_mod.TooManyActiveJobs as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc),
+        ) from exc
     return {"job_id": job_id}
 
 
@@ -425,7 +240,6 @@ async def get_validation_job_result(job_id: str, user: dict = Depends(get_curren
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Result not available (job still running, failed, or expired).",
         )
-    from fastapi.responses import Response
     return Response(content=raw, media_type="application/json")
 
 
@@ -438,11 +252,27 @@ async def get_validation_job_csv(job_id: str, user: dict = Depends(get_current_u
             status_code=status.HTTP_404_NOT_FOUND,
             detail="CSV not available (job still running, failed, or expired).",
         )
-    from fastapi.responses import Response
     return Response(
         content=raw, media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="validation-findings.csv"'},
     )
+
+
+@app.delete("/api/jobs/{job_id}")
+async def delete_validation_job(job_id: str, user: dict = Depends(get_current_user)):
+    """Remove a job and all its stored data (owner or admin).
+
+    Queued jobs are cancelled; running jobs must finish first — the worker
+    would have nowhere to write the result.
+    """
+    job = _authorize_job(await run_in_threadpool(jobs_mod.get_job, job_id), user)
+    if job["status"] == "running":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This validation is currently running — wait for it to finish.",
+        )
+    await run_in_threadpool(jobs_mod.delete_job, job_id)
+    return {"deleted": job_id}
 
 
 @app.get("/api/admin/usage")
@@ -453,23 +283,9 @@ async def admin_usage(days: int = 30, _admin: dict = Depends(require_admin)):
 
 @app.get("/api/admin/active")
 async def admin_active_runs(_admin: dict = Depends(require_admin)):
-    """Validations running on the server right now (admin only) — both
-    direct /api/validate requests and background jobs."""
+    """Validations running on the server right now (admin only)."""
     now = time.time()
-    direct = [
-        {
-            "username": e["username"],
-            "file_name": e["file_name"],
-            "ai_enabled": e["ai_enabled"],
-            "elapsed_s": int(now - e["started_ts"]),
-            "stage": e["stage"],
-            "pct": e["pct"],
-            "ai_done": e["ai_done"],
-            "ai_total": e["ai_total"],
-        }
-        for e in _ACTIVE_RUNS.values()
-    ]
-    background = [
+    runs = [
         {
             "username": e["username"],
             "file_name": e["file_name"],
@@ -482,4 +298,4 @@ async def admin_active_runs(_admin: dict = Depends(require_admin)):
         }
         for e in jobs_mod.active_jobs.values()
     ]
-    return {"runs": sorted(direct + background, key=lambda r: -r["elapsed_s"])}
+    return {"runs": sorted(runs, key=lambda r: -r["elapsed_s"])}

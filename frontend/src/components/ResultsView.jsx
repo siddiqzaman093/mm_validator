@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { downloadFindingsCsv, downloadJobCsv } from '../api'
+import { downloadJobCsv } from '../api'
 import KPICards from './KPICards'
 import FindingsTable from './FindingsTable'
 import FindingsByCategory from './FindingsByCategory'
@@ -21,10 +21,9 @@ export default function ResultsView({ report }) {
   const [activeTab, setTab] = useState(0)
   const counts = report?.counts ?? {}
 
-  // The complete CSV comes from the server: with very large files the JSON
-  // response only carries the most severe findings. Jobs serve it from the
-  // job store; direct validations from the temp report store; failing both,
-  // fall back to building it client-side from the (possibly capped) list.
+  // The complete CSV comes from the job store on the server: with very large
+  // files the JSON response only carries the most severe findings. Fall back
+  // to a client-side build from the (possibly capped) list if it's gone.
   async function handleCsvDownload() {
     try {
       if (report.job_id) {
@@ -32,14 +31,12 @@ export default function ResultsView({ report }) {
         downloadBlob(blob, `${report.file_name}.findings.csv`, 'text/csv')
         return
       }
-      if (report.csv_report_id) {
-        const blob = await downloadFindingsCsv(report.csv_report_id)
-        downloadBlob(blob, `${report.file_name}.findings.csv`, 'text/csv')
-        return
-      }
     } catch { /* expired/unreachable — fall through to client-side build */ }
+    // Prefix a quote onto values starting with =, +, -, @ so Excel treats
+    // workbook-controlled text as text, never as a formula.
+    const safe = (v) => typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : v
     const cols = ['severity','ai_generated','category','sheet','material','row','field','sap_field','value','message','rule_id']
-    const rows = report.findings.map(f => cols.map(c => JSON.stringify(f[c] ?? '')).join(','))
+    const rows = report.findings.map(f => cols.map(c => JSON.stringify(safe(f[c]) ?? '')).join(','))
     downloadBlob([cols.join(','), ...rows].join('\n'), `${report.file_name}.findings.csv`, 'text/csv')
   }
 

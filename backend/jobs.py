@@ -27,6 +27,7 @@ import csv
 import gzip
 import io
 import json
+import os
 import queue
 import threading
 import time
@@ -35,14 +36,30 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Integer, LargeBinary, MetaData, String, Table,
-    select, update, delete,
+    func, select, update, delete,
 )
 
 from usage_log import _engine as engine, log_session  # same DB as the usage log
 from validator import run_validation
 from validator.report import render_html
 
-RETENTION_DAYS = 30
+def _env_int(var: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(var, "") or default))
+    except ValueError:
+        return default
+
+
+RETENTION_DAYS = _env_int("JOB_RETENTION_DAYS", 30)
+
+# A user can queue at most this many unfinished jobs — prevents one account
+# from growing the database faster than the single worker drains the queue.
+MAX_ACTIVE_JOBS_PER_USER = _env_int("MAX_ACTIVE_JOBS_PER_USER", 3)
+
+
+class TooManyActiveJobs(Exception):
+    """Raised by submit_job when the caller already has the maximum number of
+    queued/running jobs."""
 
 _metadata = MetaData()
 
@@ -90,6 +107,15 @@ _metadata.create_all(engine)
 _CSV_COLS = ["severity", "ai_generated", "category", "sheet", "material",
              "row", "field", "sap_field", "value", "message", "rule_id"]
 
+
+def csv_safe(v):
+    """Neutralise spreadsheet formula injection: workbook-controlled text that
+    starts with =, +, -, @ (or a control char) would execute as a formula when
+    the exported CSV is opened in Excel. Prefixing a quote makes it inert."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v
+    return v
+
 _wakeups: "queue.Queue[str]" = queue.Queue()
 _worker_started = threading.Lock()
 _worker_running = False
@@ -119,7 +145,11 @@ def _gunzip(data: bytes) -> bytes:
 def submit_job(*, username: str, role: str, file_name: str, file_bytes: bytes,
                lookup_bytes: bytes | None, use_ai: bool, provider: str,
                model: str) -> str:
-    """Store the job and wake the worker. Returns the job id."""
+    """Store the job and wake the worker. Returns the job id.
+
+    Raises TooManyActiveJobs when the user already has
+    MAX_ACTIVE_JOBS_PER_USER jobs queued or running.
+    """
     job_id = uuid.uuid4().hex
     with engine.begin() as conn:
         # Retention sweep piggybacks on submissions.
@@ -127,6 +157,17 @@ def submit_job(*, username: str, role: str, file_name: str, file_bytes: bytes,
             jobs_table.c.created_at < _utcnow() - timedelta(days=RETENTION_DAYS),
             jobs_table.c.status.in_(("done", "failed")),
         ))
+        active = conn.execute(
+            select(func.count()).where(
+                jobs_table.c.username == username,
+                jobs_table.c.status.in_(("queued", "running")),
+            )
+        ).scalar_one()
+        if active >= MAX_ACTIVE_JOBS_PER_USER:
+            raise TooManyActiveJobs(
+                f"You already have {active} validations queued or running — "
+                f"wait for one to finish before submitting another."
+            )
         conn.execute(jobs_table.insert().values(
             id=job_id,
             username=username,
@@ -204,6 +245,20 @@ def get_job_csv(job_id: str) -> bytes | None:
     return _gunzip(r[0]) if r and r[0] else None
 
 
+def delete_job(job_id: str) -> bool:
+    """Delete a job row (inputs + results). Returns True if a row was removed.
+
+    Deleting a queued job effectively cancels it: the worker's atomic claim
+    finds no queued row and drops the wakeup. Running jobs are refused at the
+    API layer — the validation would keep occupying the worker with nowhere
+    to write its result.
+    """
+    with engine.begin() as conn:
+        return conn.execute(
+            delete(jobs_table).where(jobs_table.c.id == job_id)
+        ).rowcount > 0
+
+
 # ---------------------------------------------------------------------------
 # Worker
 # ---------------------------------------------------------------------------
@@ -268,24 +323,41 @@ def _worker_loop() -> None:
             active_jobs.pop(job_id, None)
 
 
-def _run_job(job_id: str) -> None:
-    import os
+def _claim_job(job_id: str) -> bool:
+    """Atomically flip queued → running; exactly one caller wins.
 
+    This is the guard against duplicate execution when several processes each
+    run a worker (e.g. `uvicorn --workers 2`) and both re-queue the same
+    recovered job: the UPDATE's WHERE clause makes the claim first-wins.
+    """
+    with engine.begin() as conn:
+        claimed = conn.execute(
+            update(jobs_table)
+            .where(jobs_table.c.id == job_id, jobs_table.c.status == "queued")
+            .values(status="running", started_at=_utcnow(),
+                    progress_pct=0, progress_stage="Starting…")
+        ).rowcount
+    return claimed > 0
+
+
+def _run_job(job_id: str) -> None:
+    if not _claim_job(job_id):
+        return  # another worker won the claim, or the job was deleted
+
+    started = time.monotonic()
     with engine.connect() as conn:
         row = conn.execute(
             select(jobs_table).where(jobs_table.c.id == job_id)
         ).mappings().first()
-    if not row or row["status"] not in ("queued",):
-        return  # already handled (e.g. double wakeup after recovery)
-    if not row["input_file"]:
+    if not row:
         return
-
-    started = time.monotonic()
-    with engine.begin() as conn:
-        conn.execute(update(jobs_table).where(jobs_table.c.id == job_id).values(
-            status="running", started_at=_utcnow(),
-            progress_pct=0, progress_stage="Starting…",
-        ))
+    if not row["input_file"]:
+        with engine.begin() as conn:
+            conn.execute(update(jobs_table).where(jobs_table.c.id == job_id).values(
+                status="failed", finished_at=_utcnow(),
+                error="Uploaded file was no longer available.",
+            ))
+        return
 
     live = {
         "username": row["username"], "file_name": row["file_name"],
@@ -371,7 +443,9 @@ def _run_job(job_id: str) -> None:
     writer.writerow(_CSV_COLS)
     for f in report.findings:
         d = f.to_dict()
-        writer.writerow(["" if d.get(c) is None else d.get(c) for c in _CSV_COLS])
+        writer.writerow([
+            "" if d.get(c) is None else csv_safe(d.get(c)) for c in _CSV_COLS
+        ])
     # utf-8-sig so Excel renders Arabic/non-Latin text correctly on open.
     csv_gz = _gz(buf.getvalue().encode("utf-8-sig"))
 

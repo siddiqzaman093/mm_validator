@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchJobs, fetchJobResult, downloadJobCsv } from '../api'
+import { fetchJobs, fetchJobResult, downloadJobCsv, deleteJob } from '../api'
 import ResultsView from '../components/ResultsView'
 
 const STATUS_STYLES = {
@@ -72,6 +72,17 @@ export default function ValidationsPage() {
     }
   }
 
+  async function remove(job) {
+    if (!window.confirm(`Delete the validation of '${job.file_name}' and all its stored results?`)) return
+    try {
+      await deleteJob(job.id)
+      if (viewing === job.id) { setReport(null); setViewing('') }
+      load()
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Could not delete this validation.')
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div>
@@ -138,16 +149,23 @@ export default function ValidationsPage() {
                     <td className="py-2 pr-4 text-right">{j.status === 'done' ? j.warnings.toLocaleString() : '—'}</td>
                     <td className="py-2 pr-4 text-right text-slate-500">{fmtDuration(j.duration_ms)}</td>
                     <td className="py-2">
-                      {j.status === 'done' && (
-                        <div className="flex gap-2">
-                          <button onClick={() => viewResult(j)} className="text-blue-600 hover:text-blue-800 text-xs font-semibold">
-                            View results
+                      <div className="flex gap-2">
+                        {j.status === 'done' && (
+                          <>
+                            <button onClick={() => viewResult(j)} className="text-blue-600 hover:text-blue-800 text-xs font-semibold">
+                              View results
+                            </button>
+                            <button onClick={() => csv(j)} className="text-slate-500 hover:text-slate-700 text-xs font-semibold">
+                              CSV
+                            </button>
+                          </>
+                        )}
+                        {j.status !== 'running' && (
+                          <button onClick={() => remove(j)} className="text-red-500 hover:text-red-700 text-xs font-semibold">
+                            Delete
                           </button>
-                          <button onClick={() => csv(j)} className="text-slate-500 hover:text-slate-700 text-xs font-semibold">
-                            CSV
-                          </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
