@@ -104,8 +104,9 @@ export async function fetchJob(jobId) {
   return res.data // { status, progress_pct, progress_stage, ai_done, ai_total, … }
 }
 
-export async function fetchJobs() {
-  const res = await client.get('/api/jobs')
+export async function fetchJobs(allUsers = false) {
+  // all=true returns every user's jobs — the backend only honours it for admins.
+  const res = await client.get('/api/jobs', { params: allUsers ? { all: true } : {} })
   return res.data.jobs // newest first
 }
 

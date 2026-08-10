@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchJobs, fetchJobResult, downloadJobCsv, deleteJob } from '../api'
+import { useAuth } from '../contexts/AuthContext'
 import ResultsView from '../components/ResultsView'
 
 const STATUS_STYLES = {
@@ -25,20 +26,25 @@ const fmtDuration = (ms) => {
 }
 
 export default function ValidationsPage() {
+  const { role, user } = useAuth()
+  const isAdmin = role === 'admin'
+
   const [jobs, setJobs]       = useState(null)   // null = loading
   const [error, setError]     = useState('')
   const [report, setReport]   = useState(null)
   const [viewing, setViewing] = useState('')     // job id whose result is shown
+  // Admins see everyone's validations by default; the toggle narrows to their own.
+  const [showAll, setShowAll] = useState(isAdmin)
   const resultsRef = useRef(null)
 
   const load = useCallback(async () => {
     try {
-      setJobs(await fetchJobs())
+      setJobs(await fetchJobs(isAdmin && showAll))
       setError('')
     } catch (err) {
       setError(err?.response?.data?.detail || 'Failed to load validations.')
     }
-  }, [])
+  }, [isAdmin, showAll])
 
   // Refresh the list; poll faster while something is still running.
   useEffect(() => {
@@ -85,12 +91,32 @@ export default function ValidationsPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-slate-800">Past Validations</h2>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Validations run in the background on the server — results are kept for 30 days,
-          even if you closed the browser while they ran.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">Past Validations</h2>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Validations run in the background on the server — results are kept for 30 days,
+            even if you closed the browser while they ran.
+          </p>
+        </div>
+        {isAdmin && (
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
+            <button
+              onClick={() => setShowAll(true)}
+              className={`px-3 py-1.5 font-medium transition-colors ${
+                showAll ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              All users
+            </button>
+            <button
+              onClick={() => setShowAll(false)}
+              className={`px-3 py-1.5 font-medium transition-colors ${
+                !showAll ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              My validations
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -110,6 +136,7 @@ export default function ValidationsPage() {
               <thead>
                 <tr className="text-left text-xs text-slate-500 uppercase tracking-wider border-b border-slate-200">
                   <th className="py-2 pr-4">Date / Time</th>
+                  {isAdmin && showAll && <th className="py-2 pr-4">User</th>}
                   <th className="py-2 pr-4">File</th>
                   <th className="py-2 pr-4">Status</th>
                   <th className="py-2 pr-4 text-right">Readiness</th>
@@ -123,6 +150,11 @@ export default function ValidationsPage() {
                 {jobs.map((j) => (
                   <tr key={j.id} className={`border-b border-slate-100 last:border-0 ${viewing === j.id ? 'bg-blue-50/50' : ''}`}>
                     <td className="py-2 pr-4 text-slate-600">{fmtDate(j.created_at)}</td>
+                    {isAdmin && showAll && (
+                      <td className="py-2 pr-4 font-medium text-slate-700 max-w-[180px] truncate" title={j.username}>
+                        {j.username}{j.username === user ? ' (you)' : ''}
+                      </td>
+                    )}
                     <td className="py-2 pr-4 text-slate-700 max-w-[240px] truncate" title={j.file_name}>
                       {j.file_name}
                       {j.use_ai && (
