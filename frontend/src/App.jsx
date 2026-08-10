@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import LoginPage from './pages/LoginPage'
 import ValidatorPage from './pages/ValidatorPage'
+import ValidationsPage from './pages/ValidationsPage'
 import AiConfigPage from './pages/AiConfigPage'
 import UsageDashboardPage from './pages/UsageDashboardPage'
 import AboutPage from './pages/AboutPage'
@@ -29,6 +30,7 @@ export default function App() {
         }
       >
         <Route path="/" element={<ValidatorPage />} />
+        <Route path="/validations" element={<ValidationsPage />} />
         <Route path="/about" element={<AboutPage />} />
         <Route
           path="/ai-configuration"

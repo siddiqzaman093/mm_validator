@@ -85,6 +85,40 @@ export async function validateFile({ file, lookupFile, useAi, apiKey, model, pro
   return res.data // ValidationReport JSON + html_report
 }
 
+// ---- Background validation jobs ----
+// Submit returns immediately with a job id; the validation runs server-side
+// and survives dropped connections, closed tabs and server restarts.
+export async function submitJob({ file, lookupFile, useAi, model, provider }) {
+  const form = new FormData()
+  form.append('file', file)
+  if (lookupFile) form.append('lookup_file', lookupFile)
+  form.append('use_ai', String(useAi))
+  form.append('model', model || '')
+  form.append('provider', provider || '')
+  const res = await client.post('/api/jobs', form)
+  return res.data // { job_id }
+}
+
+export async function fetchJob(jobId) {
+  const res = await client.get(`/api/jobs/${jobId}`)
+  return res.data // { status, progress_pct, progress_stage, ai_done, ai_total, … }
+}
+
+export async function fetchJobs() {
+  const res = await client.get('/api/jobs')
+  return res.data.jobs // newest first
+}
+
+export async function fetchJobResult(jobId) {
+  const res = await client.get(`/api/jobs/${jobId}/result`)
+  return res.data // full ValidationReport JSON (+ html_report, job_id)
+}
+
+export async function downloadJobCsv(jobId) {
+  const res = await client.get(`/api/jobs/${jobId}/csv`, { responseType: 'blob' })
+  return res.data // Blob
+}
+
 // ---- Full findings CSV (server-side, complete even when the JSON response
 // carries only the most severe findings) ----
 export async function downloadFindingsCsv(reportId) {

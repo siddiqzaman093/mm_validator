@@ -45,6 +45,8 @@ from usage_log import fetch_usage, log_session
 from validator import run_validation
 from validator.report import render_html
 
+import jobs as jobs_mod
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -70,6 +72,12 @@ app.add_middleware(
 )
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+@app.on_event("startup")
+async def _start_job_worker() -> None:
+    # Also re-queues jobs a previous process left unfinished (Render restarts).
+    jobs_mod.start_worker()
 
 # ---------------------------------------------------------------------------
 # Full-findings CSV store.
@@ -331,6 +339,112 @@ async def download_findings_csv(report_id: str, _user: dict = Depends(get_curren
     return FileResponse(path, media_type="text/csv", filename="validation-findings.csv")
 
 
+# ---------------------------------------------------------------------------
+# Background validation jobs
+# ---------------------------------------------------------------------------
+
+def _authorize_job(job: dict | None, user: dict) -> dict:
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if job["username"] != user["username"] and user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your job")
+    return job
+
+
+@app.post("/api/jobs")
+async def submit_validation_job(
+    file: UploadFile = File(...),
+    lookup_file: UploadFile | None = File(None),
+    use_ai: bool = Form(False),
+    model: str = Form("claude-haiku-4-5"),
+    provider: str = Form("anthropic"),
+    user: dict = Depends(get_current_user),
+):
+    """Queue a validation and return immediately with a job id.
+
+    The upload is stored in the database, so the result survives dropped
+    connections, closed browsers and server restarts.
+    """
+    if not file.filename or not file.filename.lower().endswith((".xls", ".xlsx")):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Only .xls and .xlsx files are supported.",
+        )
+    provider = (provider or "anthropic").strip().lower()
+    if provider not in ("anthropic", "openai"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="provider must be 'anthropic' or 'openai'.",
+        )
+    lookup_bytes: bytes | None = None
+    if lookup_file is not None and lookup_file.filename:
+        if not lookup_file.filename.lower().endswith(".xlsx"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The lookup file must be a .xlsx file.",
+            )
+        lookup_bytes = await lookup_file.read()
+
+    contents = await file.read()
+    job_id = await run_in_threadpool(
+        jobs_mod.submit_job,
+        username=user["username"],
+        role=user.get("role", "user"),
+        file_name=file.filename,
+        file_bytes=contents,
+        lookup_bytes=lookup_bytes,
+        use_ai=use_ai,
+        provider=provider,
+        model=model,
+    )
+    return {"job_id": job_id}
+
+
+@app.get("/api/jobs")
+async def list_validation_jobs(all: bool = False, user: dict = Depends(get_current_user)):
+    """The caller's past/current jobs, newest first. Admins may pass all=true."""
+    all_users = bool(all) and user.get("role") == "admin"
+    runs = await run_in_threadpool(
+        jobs_mod.list_jobs, user["username"], all_users=all_users
+    )
+    return {"jobs": runs}
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_validation_job(job_id: str, user: dict = Depends(get_current_user)):
+    job = _authorize_job(await run_in_threadpool(jobs_mod.get_job, job_id), user)
+    return job
+
+
+@app.get("/api/jobs/{job_id}/result")
+async def get_validation_job_result(job_id: str, user: dict = Depends(get_current_user)):
+    _authorize_job(await run_in_threadpool(jobs_mod.get_job, job_id), user)
+    raw = await run_in_threadpool(jobs_mod.get_job_result, job_id)
+    if raw is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Result not available (job still running, failed, or expired).",
+        )
+    from fastapi.responses import Response
+    return Response(content=raw, media_type="application/json")
+
+
+@app.get("/api/jobs/{job_id}/csv")
+async def get_validation_job_csv(job_id: str, user: dict = Depends(get_current_user)):
+    _authorize_job(await run_in_threadpool(jobs_mod.get_job, job_id), user)
+    raw = await run_in_threadpool(jobs_mod.get_job_csv, job_id)
+    if raw is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="CSV not available (job still running, failed, or expired).",
+        )
+    from fastapi.responses import Response
+    return Response(
+        content=raw, media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="validation-findings.csv"'},
+    )
+
+
 @app.get("/api/admin/usage")
 async def admin_usage(days: int = 30, _admin: dict = Depends(require_admin)):
     """Usage log for the admin dashboard. days<=0 returns all history."""
@@ -339,21 +453,33 @@ async def admin_usage(days: int = 30, _admin: dict = Depends(require_admin)):
 
 @app.get("/api/admin/active")
 async def admin_active_runs(_admin: dict = Depends(require_admin)):
-    """Validations running on the server right now (admin only)."""
+    """Validations running on the server right now (admin only) — both
+    direct /api/validate requests and background jobs."""
     now = time.time()
-    runs = sorted(_ACTIVE_RUNS.values(), key=lambda e: e["started_ts"])
-    return {
-        "runs": [
-            {
-                "username": e["username"],
-                "file_name": e["file_name"],
-                "ai_enabled": e["ai_enabled"],
-                "elapsed_s": int(now - e["started_ts"]),
-                "stage": e["stage"],
-                "pct": e["pct"],
-                "ai_done": e["ai_done"],
-                "ai_total": e["ai_total"],
-            }
-            for e in runs
-        ]
-    }
+    direct = [
+        {
+            "username": e["username"],
+            "file_name": e["file_name"],
+            "ai_enabled": e["ai_enabled"],
+            "elapsed_s": int(now - e["started_ts"]),
+            "stage": e["stage"],
+            "pct": e["pct"],
+            "ai_done": e["ai_done"],
+            "ai_total": e["ai_total"],
+        }
+        for e in _ACTIVE_RUNS.values()
+    ]
+    background = [
+        {
+            "username": e["username"],
+            "file_name": e["file_name"],
+            "ai_enabled": e["ai_enabled"],
+            "elapsed_s": int(now - e["started_ts"]),
+            "stage": e["progress_stage"],
+            "pct": e["progress_pct"],
+            "ai_done": e["ai_done"],
+            "ai_total": e["ai_total"],
+        }
+        for e in jobs_mod.active_jobs.values()
+    ]
+    return {"runs": sorted(direct + background, key=lambda r: -r["elapsed_s"])}

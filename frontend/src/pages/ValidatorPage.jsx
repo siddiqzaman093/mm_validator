@@ -1,21 +1,11 @@
-import { useState, useRef, useEffect } from 'react'
-import { validateFile, pingHealth, downloadFindingsCsv } from '../api'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { submitJob, fetchJob, fetchJobResult, pingHealth } from '../api'
 import { AI_PROVIDER, AI_MODEL } from '../aiConfig'
 import ValidationProgress from '../components/ValidationProgress'
-import KPICards from '../components/KPICards'
-import FindingsTable from '../components/FindingsTable'
-import FindingsByCategory from '../components/FindingsByCategory'
-import FindingsBySheet from '../components/FindingsBySheet'
+import ResultsView from '../components/ResultsView'
 
-const TABS = ['By Category', 'By Sheet', 'All Findings', 'Downloads']
-
-function downloadBlob(content, filename, mime) {
-  const blob = new Blob([content], { type: mime })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href = url; a.download = filename; a.click()
-  URL.revokeObjectURL(url)
-}
+// Survives page refreshes: a running job is picked back up on load.
+const ACTIVE_JOB_KEY = 'mm_validator_active_job'
 
 /** Reusable drag-and-drop file picker. */
 function DropZone({ file, onFile, accept, title, hint, required }) {
@@ -82,11 +72,13 @@ export default function ValidatorPage() {
   // Settings — only the AI toggle is user-facing; provider/key/model are hardcoded.
   const [useAi, setUseAi] = useState(false)
 
-  // Results
-  const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState('')
-  const [report, setReport]   = useState(null)
-  const [activeTab, setTab]   = useState(0)
+  // Job / results state
+  const [jobId, setJobId]   = useState(() => sessionStorage.getItem(ACTIVE_JOB_KEY) || null)
+  const [job, setJob]       = useState(null)
+  const [error, setError]   = useState('')
+  const [report, setReport] = useState(null)
+
+  const running = Boolean(jobId)
 
   // Warm up the backend when the page opens, and keep it awake during the
   // session, so the free-tier server isn't cold when Run Validation is clicked.
@@ -96,46 +88,61 @@ export default function ValidatorPage() {
     return () => clearInterval(id)
   }, [])
 
+  const clearActiveJob = useCallback(() => {
+    setJobId(null)
+    setJob(null)
+    sessionStorage.removeItem(ACTIVE_JOB_KEY)
+  }, [])
+
+  // Poll the active job until it finishes; also resumes after a page refresh.
+  useEffect(() => {
+    if (!jobId) return
+    let alive = true
+
+    async function poll() {
+      try {
+        const j = await fetchJob(jobId)
+        if (!alive) return
+        setJob(j)
+        if (j.status === 'done') {
+          const data = await fetchJobResult(jobId)
+          if (!alive) return
+          setReport(data)
+          clearActiveJob()
+        } else if (j.status === 'failed') {
+          setError(j.error || 'Validation failed. Please try again.')
+          clearActiveJob()
+        }
+      } catch (err) {
+        if (!alive) return
+        if (err?.response?.status === 404) {   // expired/unknown job
+          setError('This validation is no longer available — please run it again.')
+          clearActiveJob()
+        }
+        // other errors (network blip, waking server): keep polling
+      }
+    }
+
+    poll()
+    const id = setInterval(poll, 2500)
+    return () => { alive = false; clearInterval(id) }
+  }, [jobId, clearActiveJob])
+
   async function handleValidate() {
-    if (!file || !lookupFile) return
-    setLoading(true); setError(''); setReport(null)
+    if (!file || !lookupFile || running) return
+    setError(''); setReport(null); setJob(null)
     try {
-      const data = await validateFile({
+      const { job_id } = await submitJob({
         file, lookupFile, useAi,
         provider: AI_PROVIDER,
         model:    AI_MODEL,
-        // no apiKey — the backend supplies it from its OPENAI_API_KEY env var
+        // no apiKey — the backend supplies it from its env var
       })
-      setReport(data)
-      setTab(0)
+      sessionStorage.setItem(ACTIVE_JOB_KEY, job_id)
+      setJobId(job_id)
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Validation failed. Please try again.')
-    } finally {
-      setLoading(false)
+      setError(err?.response?.data?.detail || 'Could not start the validation. Please try again.')
     }
-  }
-
-  const counts = report?.counts ?? {}
-
-  // Full CSV comes from the server: with very large files the JSON response
-  // only carries the most severe findings, so a client-built CSV would be
-  // incomplete. Falls back to client-side generation for older responses.
-  async function handleCsvDownload() {
-    if (report.csv_report_id) {
-      try {
-        const blob = await downloadFindingsCsv(report.csv_report_id)
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url; a.download = `${report.file_name}.findings.csv`; a.click()
-        URL.revokeObjectURL(url)
-        return
-      } catch {
-        // expired/unreachable — fall back to the (possibly capped) client list
-      }
-    }
-    const cols = ['severity','ai_generated','category','sheet','material','row','field','sap_field','value','message','rule_id']
-    const rows = report.findings.map(f => cols.map(c => JSON.stringify(f[c] ?? '')).join(','))
-    downloadBlob([cols.join(','), ...rows].join('\n'), `${report.file_name}.findings.csv`, 'text/csv')
   }
 
   return (
@@ -201,10 +208,10 @@ export default function ValidatorPage() {
 
             <button
               onClick={handleValidate}
-              disabled={!file || !lookupFile || loading}
+              disabled={!file || !lookupFile || running}
               className="btn-primary w-full justify-center mt-auto"
             >
-              {loading ? (
+              {running ? (
                 <>
                   <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -226,8 +233,8 @@ export default function ValidatorPage() {
         </div>
       </div>
 
-      {/* Progress indicator while validating */}
-      {loading && <ValidationProgress useAi={useAi} />}
+      {/* Live progress from the server while the job runs */}
+      {running && <ValidationProgress job={job} />}
 
       {/* Error banner */}
       {error && (
@@ -237,116 +244,7 @@ export default function ValidatorPage() {
       )}
 
       {/* Results */}
-      {report && (
-        <div className="space-y-4">
-          {/* KPI cards (Readiness Score is the headline) */}
-          <KPICards counts={counts} report={report} />
-
-          {/* Large files: the tables below show only the most severe findings */}
-          {report.findings_truncated && (
-            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-              This file produced <strong>{(report.findings_total ?? 0).toLocaleString()}</strong> findings.
-              The tables below show the <strong>{report.findings.length.toLocaleString()}</strong> most
-              severe (all errors first) — score and counts above cover everything. Use{' '}
-              <button className="underline font-semibold" onClick={() => setTab(3)}>Downloads</button>{' '}
-              to get the complete findings CSV.
-            </div>
-          )}
-
-          {/* Tabs */}
-          {report.findings?.length > 0 ? (
-            <div className="card overflow-hidden">
-              {/* Tab bar */}
-              <div className="flex border-b border-slate-200 bg-slate-50">
-                {TABS.map((tab, i) => (
-                  <button
-                    key={tab}
-                    onClick={() => setTab(i)}
-                    className={`px-5 py-3 text-sm font-medium transition-colors border-b-2 -mb-px
-                      ${activeTab === i
-                        ? 'border-blue-600 text-blue-700 bg-white'
-                        : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-
-              <div className="p-5">
-                {activeTab === 0 && <FindingsByCategory findings={report.findings} />}
-                {activeTab === 1 && <FindingsBySheet    findings={report.findings} />}
-                {activeTab === 2 && <FindingsTable      findings={report.findings} />}
-                {activeTab === 3 && (
-                  <div className="space-y-4">
-                    <p className="text-sm text-slate-600">Download the full validation results in your preferred format.</p>
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        onClick={() => downloadBlob(report.html_report, `${report.file_name}.validation-report.html`, 'text/html')}
-                        className="btn-primary"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        HTML Report
-                      </button>
-                      <button
-                        onClick={() => downloadBlob(
-                          JSON.stringify({ ...report, html_report: undefined }, null, 2),
-                          `${report.file_name}.validation-report.json`,
-                          'application/json'
-                        )}
-                        className="btn-secondary"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        JSON Findings
-                      </button>
-                      <button
-                        onClick={handleCsvDownload}
-                        className="btn-secondary"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        CSV Findings (complete)
-                      </button>
-                      {report.findings_truncated && (
-                        <p className="w-full text-xs text-slate-500">
-                          The HTML and JSON downloads show the most severe findings only; the CSV always
-                          contains all {(report.findings_total ?? 0).toLocaleString()} findings.
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Inline HTML preview */}
-                    <div className="mt-4">
-                      <p className="text-sm font-medium text-slate-700 mb-2">HTML Report Preview</p>
-                      <iframe
-                        srcDoc={report.html_report}
-                        className="w-full h-96 rounded-xl border border-slate-200"
-                        title="HTML Report Preview"
-                        sandbox="allow-same-origin"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="card p-8 text-center">
-              <svg className="w-12 h-12 text-green-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-slate-600 font-medium">No findings — the file looks clean!</p>
-            </div>
-          )}
-        </div>
-      )}
+      {report && <ResultsView report={report} />}
     </div>
   )
 }
