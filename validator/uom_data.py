@@ -198,6 +198,74 @@ def describe_sap_uom(code: str) -> str:
     return f"{info['desc']} ({info['category']})"
 
 
+def suggest_uom(text: str) -> tuple[dict, bool] | None:
+    """Best-guess master entry for an unrecognised UoM value.
+
+    Users typically type the unit NAME instead of the code ('EACH', 'PIECE',
+    'BOTTLE') or misspell a code ('KGS'). Returns (entry, exact) where exact
+    means the value matched a unit description outright (safe to state as
+    "the recognised code"), or False for a fuzzy match (phrase as a
+    question). None when nothing plausible is found.
+    """
+    if not text:
+        return None
+    t = text.strip().lower()
+    if not t:
+        return None
+
+    # 1. exact description match: 'EACH' -> Each -> EA
+    by_desc: dict[str, dict] = {}
+    for e in SAP_INFO.values():
+        by_desc.setdefault(e["desc"].lower(), e)
+    if t in by_desc:
+        return by_desc[t], True
+    # 2. simple plural: 'PIECES' -> Piece -> PC
+    if t.endswith("s") and t[:-1] in by_desc:
+        return by_desc[t[:-1]], True
+
+    import difflib
+    # 3. close description match: 'PEICE' -> Piece
+    close = difflib.get_close_matches(t, list(by_desc), n=1, cutoff=0.85)
+    if close:
+        return by_desc[close[0]], False
+    # 4. close code match (SAP + ISO): 'KGS' -> KG
+    by_code: dict[str, dict] = {}
+    for e in SAP_INFO.values():
+        by_code.setdefault(e["sap"].lower(), e)
+        if e["iso"]:
+            by_code.setdefault(e["iso"].lower(), e)
+    close = difflib.get_close_matches(t, list(by_code), n=1, cutoff=0.75)
+    if close:
+        return by_code[close[0]], False
+    return None
+
+
+def uom_suggestion_label(entry: dict) -> str:
+    """'EA' (Each) — with the ISO code appended when it differs from SAP."""
+    label = f"'{entry['sap']}' ({entry['desc']})"
+    if entry["iso"] and entry["iso"].lower() != entry["sap"].lower():
+        label += f", ISO '{entry['iso']}'"
+    return label
+
+
+def uom_hint(text: str) -> str:
+    """End-user message suffix for an unrecognised UoM value: a concrete
+    suggestion when one can be found, generic advice otherwise. Deliberately
+    never mentions internal file names like SAP_UOM_All.xlsx."""
+    found = suggest_uom(text)
+    if found:
+        entry, exact = found
+        # Degenerate guard: never "suggest" the exact string the user typed.
+        t = text.strip().lower()
+        if t in (entry["sap"].lower(), (entry["iso"] or "").lower()):
+            return " Check for typos."
+        label = uom_suggestion_label(entry)
+        if exact:
+            return f" {label} is the recognised code for '{text.strip()}'."
+        return f" Did you mean {label}?"
+    return " Check for typos."
+
+
 def is_valid_sap_uom(code: str) -> bool:
     """True if code is a recognised ISO code OR a recognised SAP internal code."""
     if not code:

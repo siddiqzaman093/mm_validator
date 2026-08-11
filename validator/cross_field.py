@@ -39,7 +39,7 @@ def _strip_quantities(tokens: frozenset) -> frozenset:
 from .models import Finding, Severity, SheetData
 from .plausibility import check_uom_amounts
 from .uom_conversion import check_conversion
-from .uom_data import is_valid_sap_uom, describe_sap_uom
+from .uom_data import is_valid_sap_uom, describe_sap_uom, uom_hint as _uom_hint
 
 
 def _v(row: dict, sap: str) -> Any:
@@ -722,8 +722,8 @@ def check_basic_uom_codes(sheet: SheetData | None) -> list[Finding]:
             findings.append(Finding(
                 Severity.ERROR, "Cross/UoM", sheet.sheet, r,
                 "Base UoM (MEINS)", "MEINS",
-                f"Base UoM '{uom}' is not a recognised ISO or SAP UoM code "
-                "(not in SAP_UOM_All.xlsx). Check for typos.",
+                f"Base UoM '{uom}' is not a recognised ISO or SAP UoM code."
+                + _uom_hint(uom),
                 material=product, value=uom, rule_id="X_BASE_UOM_INVALID_SAP",
             ))
     return findings

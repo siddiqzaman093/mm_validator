@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NamedTuple
 from .models import Severity
-from .uom_data import classify_sap_uom, is_valid_sap_uom
+from .uom_data import classify_sap_uom, is_valid_sap_uom, uom_hint
 
 IMPOSSIBLE_PAIRS: dict[frozenset, str] = {
     frozenset({"mass",   "length"}): "Mass and length are incompatible dimensions.",
@@ -254,8 +254,8 @@ def check_conversion(
     # 1. UoM code validity (ISO or SAP)
     if alt_uom and not is_valid_sap_uom(alt_uom):
         issues.append(ConversionIssue(Severity.ERROR, "X_ALT_INVALID_UOM_CODE",
-            f"Alt UoM '{alt_uom}' is not a recognised ISO or SAP UoM code. "
-            "Check against SAP_UOM_All.xlsx."))
+            f"Alt UoM '{alt_uom}' is not a recognised ISO or SAP UoM code."
+            + uom_hint(alt_uom)))
 
     bd = classify_sap_uom(base_uom)
     ad = classify_sap_uom(alt_uom)
