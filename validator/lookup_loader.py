@@ -318,3 +318,52 @@ def load_lookup_plant_profit_center(file_bytes: bytes) -> dict[str, str]:
             result[plant] = pc
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Dependencies (dynamic conditional rules)
+# ---------------------------------------------------------------------------
+def load_lookup_dependencies(file_bytes: bytes) -> list[dict]:
+    """
+    Parse the optional 'Dependencies' sheet.
+
+    Layout: header row, then one row per trigger with
+      col A: trigger field name (e.g. 'Product type')
+      col B: trigger value       (e.g. 'ZDEV')
+      col C+: up to five free-text conditions ('Dependency 1'..'Dependency 5')
+
+    Each non-empty condition cell becomes one raw rule:
+      {"row": <1-based sheet row>, "trigger_field": str, "trigger_value": str,
+       "condition": str}
+
+    The texts are interpreted at validation time by validator.dependencies —
+    this loader only collects them. Missing sheet → empty list.
+    """
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=False)
+    except Exception:
+        return []
+
+    if "Dependencies" not in wb.sheetnames:
+        return []
+
+    ws = wb["Dependencies"]
+    rules: list[dict] = []
+    for r, row in enumerate(ws.iter_rows(values_only=True), 1):
+        if r == 1 or not row:          # header
+            continue
+        trigger_field = _clean(row[0] if len(row) > 0 else None)
+        trigger_value = _norm_num(_clean(row[1] if len(row) > 1 else None))
+        if not trigger_field or not trigger_value:
+            continue
+        for cell in row[2:7]:          # Dependency 1..5
+            condition = _clean(cell)
+            if condition:
+                rules.append({
+                    "row": r,
+                    "trigger_field": trigger_field,
+                    "trigger_value": trigger_value,
+                    "condition": condition,
+                })
+    return rules

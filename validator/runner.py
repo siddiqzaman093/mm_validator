@@ -9,9 +9,11 @@ from .lookup_loader import (
     load_lookup_fields_entry,
     load_lookup_mandatory_fields,
     load_lookup_plant_profit_center,
+    load_lookup_dependencies,
 )
 from .schema_check import validate_schema
 from .cross_field import run_cross_checks
+from .dependencies import check_dependencies
 from .lookup_checks import check_product_type_vs_lookup, check_plant_profit_center
 from .ai_flags import run_ai_flags
 from .models import Finding, Severity, ValidationReport
@@ -40,6 +42,7 @@ def run_validation(file_path_or_bytes, file_name: str = "uploaded.xls",
     fields_entry       = load_lookup_fields_entry(lookup_bytes)        if lookup_bytes else {}
     mandatory_by_mtart = load_lookup_mandatory_fields(lookup_bytes)    if lookup_bytes else {}
     plant_pc_map       = load_lookup_plant_profit_center(lookup_bytes) if lookup_bytes else {}
+    dependency_rules   = load_lookup_dependencies(lookup_bytes)        if lookup_bytes else []
 
     # -- Stage 2: Read workbook --
     _progress(15, "Reading Material Master workbook…")
@@ -107,6 +110,11 @@ def run_validation(file_path_or_bytes, file_name: str = "uploaded.xls",
         report.add(f)
 
     for f in check_plant_profit_center(data.get("Plant Data"), plant_pc_map):
+        report.add(f)
+
+    # User-maintained conditional rules from the lookup 'Dependencies' sheet —
+    # re-read on every run, so rule changes need no deployment.
+    for f in check_dependencies(dependency_rules, specs, data):
         report.add(f)
 
     # -- Stage 6: AI checks --
