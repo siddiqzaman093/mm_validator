@@ -275,18 +275,46 @@ class ValidationReport:
     _SEV_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 
     def top_findings(self, cap: int | None) -> list[Finding]:
-        """Representative findings: up to SAMPLES_PER_GROUP per category
-        (errors first, original order within each severity), globally bounded
-        by `cap`. Returns the full list when it fits."""
+        """Representative findings: up to SAMPLES_PER_GROUP per category,
+        globally bounded by `cap`. Returns the full list when it fits.
+
+        Within a category the sample is taken round-robin across rule_ids, so
+        EVERY rule that fired is represented on screen. A plain errors-first
+        cut would let one high-volume rule bury the others — including the
+        Dependencies engine's per-rule summary lines, which are INFO and
+        would otherwise disappear exactly when rules fire heavily.
+        """
         if cap is None or len(self.findings) <= cap:
             return self.findings
+
         by_cat: dict[str, list[Finding]] = {}
         for f in self.findings:
             by_cat.setdefault(f.category, []).append(f)
+
         shipped: list[Finding] = []
         for cat in sorted(by_cat):
-            group = sorted(by_cat[cat], key=lambda f: self._SEV_ORDER.get(f.severity, 9))
-            shipped.extend(group[:self.SAMPLES_PER_GROUP])
+            by_rule: dict[str, list[Finding]] = {}
+            for f in by_cat[cat]:
+                by_rule.setdefault(f.rule_id, []).append(f)
+            for group in by_rule.values():
+                group.sort(key=lambda f: self._SEV_ORDER.get(f.severity, 9))
+            # Round-robin: rule_ids ordered by their most severe finding.
+            queues = sorted(
+                by_rule.values(),
+                key=lambda g: self._SEV_ORDER.get(g[0].severity, 9),
+            )
+            picked: list[Finding] = []
+            i = 0
+            while len(picked) < self.SAMPLES_PER_GROUP and any(i < len(q) for q in queues):
+                for q in queues:
+                    if i < len(q):
+                        picked.append(q[i])
+                        if len(picked) >= self.SAMPLES_PER_GROUP:
+                            break
+                i += 1
+            picked.sort(key=lambda f: self._SEV_ORDER.get(f.severity, 9))
+            shipped.extend(picked)
+
         if len(shipped) > cap:   # very many categories — trim globally
             shipped = sorted(shipped, key=lambda f: self._SEV_ORDER.get(f.severity, 9))[:cap]
         return shipped
