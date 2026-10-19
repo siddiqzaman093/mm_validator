@@ -1,0 +1,294 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1240" viewBox="0 0 1680 1240" font-family="Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arwd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arwp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#be185d"/>
+    </marker>
+    <style>
+      .ttl   { font-size:23px; font-weight:700; fill:#0f172a; }
+      .sub   { font-size:12.5px; fill:#64748b; }
+      .band  { font-size:12px; font-weight:700; fill:#475569; letter-spacing:.09em; }
+      .ch    { font-size:13px; font-weight:700; fill:#0f172a; }
+      .cd    { font-size:10.7px; fill:#475569; }
+      .mono  { font-size:10.5px; fill:#334155; font-family:"Cascadia Mono",Consolas,monospace; }
+      .flow  { font-size:10.5px; fill:#334155; font-weight:600; }
+      .flowm { font-size:10.5px; fill:#334155; font-weight:600; font-family:"Cascadia Mono",Consolas,monospace; }
+      .tag   { font-size:9px; font-weight:700; fill:#ffffff; letter-spacing:.06em; }
+      .num   { font-size:10.5px; font-weight:700; fill:#ffffff; }
+      .lgd   { font-size:10.5px; fill:#475569; }
+    </style>
+  </defs>
+
+  <rect width="1680" height="1240" fill="#ffffff"/>
+
+  <!-- ===== Title ===== -->
+  <text class="ttl" x="40" y="42">SAP S/4HANA Material Master Validator — Solution Architecture</text>
+  <text class="sub" x="40" y="64">React SPA on Vercel · FastAPI + database-backed job worker on Render · one shared Python validation engine · Neon Postgres · LLM-assisted plausibility flags</text>
+  <text class="sub" x="1640" y="42" text-anchor="end">github.com/siddiqzaman093/mm_validator</text>
+  <text class="sub" x="1640" y="64" text-anchor="end">Arete Global · rev. 2026-10-19</text>
+
+  <!-- ===== Band 1 : actors, inputs, outputs ===== -->
+  <rect x="40" y="86" width="400" height="116" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+  <rect x="40" y="86" width="5" height="116" rx="2.5" fill="#64748b"/>
+  <text class="ch" x="60" y="108">Actors — JWT roles</text>
+  <text class="cd" x="60" y="128">Admin · validator + AI configuration + usage dashboard</text>
+  <text class="cd" x="60" y="146">User · validator + own past validations only</text>
+  <text class="cd" x="60" y="164">Login id = e-mail address (case-insensitive)</text>
+  <text class="cd" x="60" y="182">HS256 bearer token, 8-hour lifetime</text>
+
+  <rect x="456" y="86" width="628" height="116" rx="9" fill="#eff6ff" stroke="#bfdbfe"/>
+  <rect x="456" y="86" width="5" height="116" rx="2.5" fill="#2563eb"/>
+  <text class="ch" x="476" y="108">Inputs — Excel workbooks (≤ 25 MB each, .xls / .xlsx)</text>
+  <text class="cd" x="476" y="128">1  Product Master Lookup File (.xlsx) — the configuration workbook</text>
+  <text class="mono" x="492" y="145">Field Types · Fields Entry · Plant-ProfitCenter · Dependencies</text>
+  <text class="cd" x="476" y="165">2  SAP Migration Cockpit “Product Master Creation” template</text>
+  <text class="mono" x="492" y="182">Field List · Basic Data · Plant Data · Valuation · Distribution Chains · Alt. UoM · …</text>
+
+  <rect x="1100" y="86" width="540" height="116" rx="9" fill="#f0fdf4" stroke="#bbf7d0"/>
+  <rect x="1100" y="86" width="5" height="116" rx="2.5" fill="#16a34a"/>
+  <text class="ch" x="1120" y="108">Outputs</text>
+  <text class="cd" x="1120" y="128">Migration-readiness score 0–100 + KPI cards</text>
+  <text class="cd" x="1120" y="146">Findings by category / by sheet / filterable table</text>
+  <text class="cd" x="1120" y="164">Report JSON (sampled) · self-contained HTML report</text>
+  <text class="cd" x="1120" y="182">Complete findings CSV (UTF-8 BOM, formula-injection safe)</text>
+
+  <!-- flow: inputs -> SPA -->
+  <line x1="770" y1="202" x2="770" y2="236" stroke="#475569" stroke-width="1.6" marker-end="url(#arw)"/>
+  <circle cx="744" cy="219" r="9" fill="#475569"/><text class="num" x="744" y="223" text-anchor="middle">1</text>
+  <text class="flow" x="786" y="223">drag &amp; drop</text>
+
+  <!-- ===== Band 2 : presentation ===== -->
+  <rect x="40" y="240" width="1600" height="140" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="band" x="60" y="263">PRESENTATION TIER — VERCEL (STATIC CDN, SPA REWRITE /(.*) → /index.html)</text>
+  <text class="cd" x="1620" y="263" text-anchor="end">React 18 · Vite 5 · Tailwind 3 · react-router 6 · axios</text>
+
+  <rect x="60" y="276" width="300" height="88" rx="8" fill="#ffffff" stroke="#bfdbfe"/>
+  <rect x="60" y="276" width="4" height="88" rx="2" fill="#2563eb"/>
+  <text class="ch" x="76" y="297">Validator</text>
+  <text class="cd" x="76" y="315">Two-step upload, AI toggle</text>
+  <text class="cd" x="76" y="332">Live server-side progress bar</text>
+  <text class="cd" x="76" y="349">Resumes a running job after refresh</text>
+
+  <rect x="376" y="276" width="300" height="88" rx="8" fill="#ffffff" stroke="#bfdbfe"/>
+  <rect x="376" y="276" width="4" height="88" rx="2" fill="#2563eb"/>
+  <text class="ch" x="392" y="297">Past Validations</text>
+  <text class="cd" x="392" y="315">Last 50 runs, newest first</text>
+  <text class="cd" x="392" y="332">Re-open stored result, delete</text>
+  <text class="cd" x="392" y="349">Admin: “All users” toggle</text>
+
+  <rect x="692" y="276" width="300" height="88" rx="8" fill="#ffffff" stroke="#fecdd3"/>
+  <rect x="692" y="276" width="4" height="88" rx="2" fill="#be185d"/>
+  <rect x="930" y="283" width="52" height="14" rx="7" fill="#be185d"/>
+  <text class="tag" x="956" y="293" text-anchor="middle">ADMIN</text>
+  <text class="ch" x="708" y="297">Usage Dashboard</text>
+  <text class="cd" x="708" y="315">Sessions, materials, tokens, cost</text>
+  <text class="cd" x="708" y="332">Per-user aggregates, storage mode</text>
+  <text class="cd" x="708" y="349">“Currently running” live panel</text>
+
+  <rect x="1008" y="276" width="300" height="88" rx="8" fill="#ffffff" stroke="#fecdd3"/>
+  <rect x="1008" y="276" width="4" height="88" rx="2" fill="#be185d"/>
+  <rect x="1246" y="283" width="52" height="14" rx="7" fill="#be185d"/>
+  <text class="tag" x="1272" y="293" text-anchor="middle">ADMIN</text>
+  <text class="ch" x="1024" y="297">AI Configuration</text>
+  <text class="cd" x="1024" y="315">Shows active provider and model</text>
+  <text class="cd" x="1024" y="332">Build-time constants (aiConfig.js)</text>
+  <text class="cd" x="1024" y="349">No key in the browser bundle</text>
+
+  <rect x="1324" y="276" width="296" height="88" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="1324" y="276" width="4" height="88" rx="2" fill="#64748b"/>
+  <text class="ch" x="1340" y="297">Session &amp; client plumbing</text>
+  <text class="cd" x="1340" y="315">JWT in sessionStorage (tab-scoped)</text>
+  <text class="cd" x="1340" y="332">axios interceptors: bearer + 401 → login</text>
+  <text class="cd" x="1340" y="349">10-min /api/health keep-alive ping</text>
+
+  <!-- flow: SPA <-> API -->
+  <line x1="470" y1="380" x2="470" y2="420" stroke="#475569" stroke-width="1.6" marker-end="url(#arw)"/>
+  <circle cx="444" cy="400" r="9" fill="#475569"/><text class="num" x="444" y="404" text-anchor="middle">2</text>
+  <text class="flowm" x="486" y="398">POST /api/jobs</text>
+  <text class="flow" x="486" y="413">multipart upload → { job_id }</text>
+
+  <line x1="1120" y1="420" x2="1120" y2="380" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arwd)"/>
+  <circle cx="1094" cy="400" r="9" fill="#94a3b8"/><text class="num" x="1094" y="404" text-anchor="middle">6</text>
+  <text class="flowm" x="1136" y="398">GET /api/jobs/{id}</text>
+  <text class="flow" x="1136" y="413">polled every 2.5 s → status, %, stage</text>
+
+  <!-- ===== Band 3 : application tier ===== -->
+  <rect x="40" y="424" width="1600" height="226" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="band" x="60" y="447">APPLICATION TIER — RENDER WEB SERVICE · UVICORN + FASTAPI · SINGLE INSTANCE, 512 MB, PYTHON 3.12</text>
+  <text class="cd" x="1620" y="447" text-anchor="end">healthCheckPath /api/health · provisioned from render.yaml blueprint</text>
+
+  <rect x="60" y="460" width="380" height="172" rx="8" fill="#ffffff" stroke="#a7f3d0"/>
+  <rect x="60" y="460" width="4" height="172" rx="2" fill="#0d9488"/>
+  <text class="ch" x="76" y="481">Middleware &amp; security — auth.py</text>
+  <text class="cd" x="76" y="500">CORS allow-list + https://*.vercel.app regex</text>
+  <text class="cd" x="76" y="518">OAuth2 password flow → HS256 JWT (8 h)</text>
+  <text class="cd" x="76" y="536">Dependency guards: get_current_user,</text>
+  <text class="cd" x="76" y="551">require_admin (403 for non-admins)</text>
+  <text class="cd" x="76" y="571">Constant-time password compare</text>
+  <text class="cd" x="76" y="589">Upload gate: extension + 25 MB → 413</text>
+  <text class="cd" x="76" y="607">Per-job ownership check → 403</text>
+  <text class="cd" x="76" y="625">Passwords &amp; AI key: env vars only</text>
+
+  <rect x="456" y="460" width="430" height="172" rx="8" fill="#ffffff" stroke="#a7f3d0"/>
+  <rect x="456" y="460" width="4" height="172" rx="2" fill="#0d9488"/>
+  <text class="ch" x="472" y="481">REST API — main.py</text>
+  <text class="mono" x="472" y="501">POST   /api/auth/login</text>
+  <text class="mono" x="472" y="519">POST   /api/jobs                 → { job_id }</text>
+  <text class="mono" x="472" y="537">GET    /api/jobs?all=true        (admin)</text>
+  <text class="mono" x="472" y="555">GET    /api/jobs/{id}            status + progress</text>
+  <text class="mono" x="472" y="573">GET    /api/jobs/{id}/result     report JSON</text>
+  <text class="mono" x="472" y="591">GET    /api/jobs/{id}/csv        full findings</text>
+  <text class="mono" x="472" y="609">DELETE /api/jobs/{id}            409 if running</text>
+  <text class="mono" x="472" y="627">GET    /api/admin/usage | /active | /health</text>
+
+  <rect x="902" y="460" width="718" height="172" rx="8" fill="#ffffff" stroke="#a7f3d0"/>
+  <rect x="902" y="460" width="4" height="172" rx="2" fill="#0d9488"/>
+  <text class="ch" x="918" y="481">Asynchronous job orchestrator — jobs.py</text>
+  <text class="cd" x="918" y="501">The queue <tspan font-weight="700">is</tspan> the database: a status column (queued → running → done | failed). The in-process Queue only wakes the worker.</text>
+  <text class="cd" x="918" y="519">ONE worker thread, deliberately sequential — peak ≈ 200 MB for a 100 k-row workbook against a 512 MB cap.</text>
+  <text class="cd" x="918" y="537">Atomic claim: UPDATE … WHERE status='queued' — first writer wins, so duplicate workers or re-queues cannot double-run a job.</text>
+  <text class="cd" x="918" y="555">Progress written at most every 2 s; a live in-memory dict feeds the admin “currently running” panel without a query.</text>
+  <text class="cd" x="918" y="573">Crash/restart recovery: queued + running rows are re-queued on startup (inputs are retained in the row until completion).</text>
+  <text class="cd" x="918" y="591">Guard rails: max 3 unfinished jobs per user (429) · inputs cleared on finish · results gzipped · 30-day retention sweep.</text>
+  <text class="cd" x="918" y="614">Request handlers call these through <tspan font-family="Cascadia Mono,Consolas,monospace">run_in_threadpool</tspan>, so blocking DB work never stalls the event loop.</text>
+
+  <!-- flow: API -> engine -->
+  <line x1="470" y1="650" x2="470" y2="690" stroke="#475569" stroke-width="1.6" marker-end="url(#arw)"/>
+  <circle cx="444" cy="670" r="9" fill="#475569"/><text class="num" x="444" y="674" text-anchor="middle">4</text>
+  <text class="flowm" x="486" y="668">run_validation(bytes, lookup_bytes, …)</text>
+  <text class="flow" x="486" y="683">worker invokes the engine in-process</text>
+
+  <line x1="1200" y1="690" x2="1200" y2="650" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arwd)"/>
+  <circle cx="1174" cy="670" r="9" fill="#94a3b8"/><text class="num" x="1174" y="674" text-anchor="middle">5</text>
+  <text class="flow" x="1216" y="668">progress_callback / ai_progress_callback</text>
+  <text class="flow" x="1216" y="683">ValidationReport returned to the worker</text>
+
+  <!-- ===== Band 4 : validation engine ===== -->
+  <rect x="40" y="694" width="1600" height="310" rx="10" fill="#faf5ff" stroke="#d8b4fe"/>
+  <text class="band" x="60" y="717">VALIDATION ENGINE — validator/ PACKAGE · PURE PYTHON, NO I/O BEYOND THE WORKBOOKS · SHARED BY THE FASTAPI BACKEND AND THE STREAMLIT APP (app.py)</text>
+  <text class="cd" x="1620" y="717" text-anchor="end">orchestrated by runner.py in 6 progress-reported stages</text>
+
+  <rect x="60" y="730" width="372" height="152" rx="8" fill="#ffffff" stroke="#e9d5ff"/>
+  <rect x="60" y="730" width="4" height="152" rx="2" fill="#7c3aed"/>
+  <text class="ch" x="76" y="751">① Ingestion</text>
+  <text class="mono" x="76" y="770">loader.py · lookup_loader.py</text>
+  <text class="cd" x="76" y="790">xlrd (.xls) and openpyxl read-only (.xlsx)</text>
+  <text class="cd" x="76" y="807">behind one wrapper; a single sequential</text>
+  <text class="cd" x="76" y="824">pass per sheet, no full cell model</text>
+  <text class="cd" x="76" y="844">Compact __slots__ Row / Cells with a</text>
+  <text class="cd" x="76" y="861">per-sheet keymap — 60–100 k rows in RAM</text>
+  <text class="cd" x="76" y="878">Field List → FieldSpec; lookup → 5 maps</text>
+
+  <rect x="448" y="730" width="372" height="152" rx="8" fill="#ffffff" stroke="#e9d5ff"/>
+  <rect x="448" y="730" width="4" height="152" rx="2" fill="#7c3aed"/>
+  <text class="ch" x="464" y="751">② Deterministic rule modules</text>
+  <text class="mono" x="464" y="770">schema_check · cross_field · plausibility</text>
+  <text class="mono" x="464" y="786">uom_conversion · uom_data · lookup_checks</text>
+  <text class="cd" x="464" y="806">Mandatory / type / length / decimals, with</text>
+  <text class="cd" x="464" y="823">lookup SAP columns as priority 1 and the</text>
+  <text class="cd" x="464" y="840">template Field List as fallback</text>
+  <text class="cd" x="464" y="860">Cross-extension coherence, alt-UoM</text>
+  <text class="cd" x="464" y="877">conversions, physical-amount plausibility</text>
+
+  <rect x="836" y="730" width="372" height="152" rx="8" fill="#ffffff" stroke="#e9d5ff"/>
+  <rect x="836" y="730" width="4" height="152" rx="2" fill="#7c3aed"/>
+  <text class="ch" x="852" y="751">③ Configurable dependency engine</text>
+  <text class="mono" x="852" y="770">dependencies.py</text>
+  <text class="cd" x="852" y="790">Plain-English conditional rules maintained</text>
+  <text class="cd" x="852" y="807">by key users on the lookup “Dependencies”</text>
+  <text class="cd" x="852" y="824">sheet, re-read every run — no deployment</text>
+  <text class="cd" x="852" y="844">Deterministic template parser (start/end</text>
+  <text class="cd" x="852" y="861">with · contains · one of · empty · equals)</text>
+  <text class="cd" x="852" y="878">An unparsed rule raises a visible warning</text>
+
+  <rect x="1224" y="730" width="396" height="152" rx="8" fill="#ffffff" stroke="#e9d5ff"/>
+  <rect x="1224" y="730" width="4" height="152" rx="2" fill="#7c3aed"/>
+  <text class="ch" x="1240" y="751">⑤ Aggregation &amp; rendering</text>
+  <text class="mono" x="1240" y="770">models.py · report.py</text>
+  <text class="cd" x="1240" y="790">Finding(severity, category, sheet, row, field,</text>
+  <text class="cd" x="1240" y="807">sap_field, material, value, rule_id, ai_generated)</text>
+  <text class="cd" x="1240" y="827">Readiness score: blocked materials, 30 % per</text>
+  <text class="cd" x="1240" y="844">warning-only material, capped file-level penalty</text>
+  <text class="cd" x="1240" y="864">JSON payload capped at 5 000 findings —</text>
+  <text class="cd" x="1240" y="881">round-robin sample per rule, true totals kept</text>
+
+  <!-- AI subsystem -->
+  <rect x="60" y="896" width="1148" height="94" rx="8" fill="#fdf2f8" stroke="#fbcfe8"/>
+  <rect x="60" y="896" width="4" height="94" rx="2" fill="#be185d"/>
+  <text class="ch" x="76" y="917">④ AI flag subsystem — ai_flags.py · five flags: description ↔ material type · shelf life · pricing · base-UoM nature · Arabic ↔ English description</text>
+  <text class="cd" x="76" y="937">Deterministic prefilter decides first: clear-cut good and clear-cut bad rows never reach a model — only genuinely ambiguous rows become candidates.</text>
+  <text class="cd" x="76" y="955">Cost/latency envelope: identical questions deduped → seeded random sample of 250 distinct cases per flag (overrun announced in the report) →</text>
+  <text class="cd" x="76" y="973">chunks of 25 items → 4 parallel worker threads → strict-JSON verdicts fanned back out to every duplicate row; failures degrade to INFO findings.</text>
+
+  <rect x="1224" y="896" width="396" height="94" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="1224" y="896" width="4" height="94" rx="2" fill="#64748b"/>
+  <text class="ch" x="1240" y="917">Rule catalogue</text>
+  <text class="cd" x="1240" y="937">≈ 100 distinct rule_id values across 27 categories:</text>
+  <text class="mono" x="1240" y="956">Schema/* · Cross/* · Duplicate/* · Lookup/* · AI/*</text>
+  <text class="cd" x="1240" y="976">AI findings are tagged ai_generated and never block</text>
+
+  <!-- flow: engine -> AI providers -->
+  <path d="M 1000 990 L 1000 1024" stroke="#be185d" stroke-width="1.6" marker-end="url(#arwp)"/>
+  <text class="flow" x="1016" y="1005">batched JSON prompts, cached system prompt,</text>
+  <text class="flow" x="1016" y="1020">strict-JSON verdicts back</text>
+
+  <!-- flow: engine -> data -->
+  <line x1="200" y1="1004" x2="200" y2="1038" stroke="#475569" stroke-width="1.6" marker-start="url(#arw)" marker-end="url(#arw)"/>
+  <circle cx="162" cy="1013" r="9" fill="#475569"/><text class="num" x="162" y="1017" text-anchor="middle">3</text>
+  <circle cx="162" cy="1033" r="9" fill="#475569"/><text class="num" x="162" y="1037" text-anchor="middle">7</text>
+  <text class="flow" x="216" y="1017">3  queued job row written on submit  ·  7  gzipped result JSON + findings CSV + usage row on completion</text>
+  <text class="cd" x="216" y="1033">persistence is owned by jobs.py in the application tier (drawn here only to reach the data tier)</text>
+
+  <!-- ===== Band 5 : data & external ===== -->
+  <rect x="40" y="1042" width="1600" height="136" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text class="band" x="60" y="1065">DATA, REFERENCE &amp; EXTERNAL SERVICES</text>
+
+  <rect x="60" y="1078" width="520" height="86" rx="8" fill="#ffffff" stroke="#99f6e4"/>
+  <rect x="60" y="1078" width="4" height="86" rx="2" fill="#0f766e"/>
+  <text class="ch" x="76" y="1099">Neon Postgres (DATABASE_URL) — SQLAlchemy Core</text>
+  <text class="mono" x="76" y="1118">validation_jobs</text>
+  <text class="cd" x="178" y="1118">queue state, progress, inputs (cleared on finish),</text>
+  <text class="cd" x="178" y="1133">gzip result JSON + findings CSV, KPIs, 30-day retention</text>
+  <text class="mono" x="76" y="1152">usage_sessions</text>
+  <text class="cd" x="178" y="1152">who / when / materials / tokens / USD cost / readiness</text>
+
+  <rect x="596" y="1078" width="330" height="86" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="596" y="1078" width="4" height="86" rx="2" fill="#64748b"/>
+  <text class="ch" x="612" y="1099">Bundled reference data</text>
+  <text class="mono" x="612" y="1118">sample_data/SAP_UOM_All.xlsx</text>
+  <text class="cd" x="612" y="1137">SAP + ISO unit-of-measure master with dimension</text>
+  <text class="cd" x="612" y="1153">classes; loaded once at module import</text>
+
+  <rect x="942" y="1078" width="378" height="86" rx="8" fill="#fdf2f8" stroke="#fbcfe8"/>
+  <rect x="942" y="1078" width="4" height="86" rx="2" fill="#be185d"/>
+  <text class="ch" x="958" y="1099">External LLM providers (pluggable)</text>
+  <text class="cd" x="958" y="1118">Anthropic Messages API — ephemeral prompt cache</text>
+  <text class="cd" x="958" y="1136">OpenAI Chat Completions — current default</text>
+  <text class="cd" x="958" y="1154">Key lives only in a backend env var; cost is metered</text>
+
+  <rect x="1336" y="1078" width="284" height="86" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="1336" y="1078" width="4" height="86" rx="2" fill="#64748b"/>
+  <text class="ch" x="1352" y="1099">Secondary UI — app.py</text>
+  <text class="cd" x="1352" y="1118">Streamlit front end for local and</text>
+  <text class="cd" x="1352" y="1136">offline use, calling the identical</text>
+  <text class="cd" x="1352" y="1154">validator/ engine (no divergence)</text>
+
+  <!-- fallback note -->
+  <text class="cd" x="60" y="1200">Fallback store: when DATABASE_URL is unset the same SQLAlchemy code targets backend/data/usage.db (SQLite) — convenient locally, ephemeral on Render’s free tier.</text>
+
+  <!-- legend -->
+  <line x1="60" y1="1216" x2="92" y2="1216" stroke="#475569" stroke-width="1.6" marker-end="url(#arw)"/>
+  <text class="lgd" x="100" y="1220">synchronous request / in-process call</text>
+  <line x1="340" y1="1216" x2="372" y2="1216" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arwd)"/>
+  <text class="lgd" x="380" y="1220">polled or returned asynchronously</text>
+  <line x1="600" y1="1216" x2="632" y2="1216" stroke="#be185d" stroke-width="1.6" marker-end="url(#arwp)"/>
+  <text class="lgd" x="640" y="1220">outbound call to a third-party AI service</text>
+  <circle cx="900" cy="1212" r="8" fill="#475569"/><text class="num" x="900" y="1216" text-anchor="middle">n</text>
+  <text class="lgd" x="914" y="1220">step in the primary validation flow (1 → 6)</text>
+  <text class="lgd" x="1640" y="1220" text-anchor="end">No SAP system connectivity: the tool validates the migration workbook offline, before Migration Cockpit load.</text>
+</svg>
