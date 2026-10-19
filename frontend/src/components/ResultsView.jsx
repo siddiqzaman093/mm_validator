@@ -7,6 +7,9 @@ import FindingsBySheet from './FindingsBySheet'
 
 const TABS = ['By Category', 'By Sheet', 'All Findings', 'Downloads']
 
+// Upper bound on rows rendered inside a single expanded group (see groupRowCap).
+const GROUP_RENDER_CAP = 300
+
 function downloadBlob(content, filename, mime) {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mime })
   const url  = URL.createObjectURL(blob)
@@ -20,6 +23,15 @@ function downloadBlob(content, filename, mime) {
 export default function ResultsView({ report }) {
   const [activeTab, setTab] = useState(0)
   const counts = report?.counts ?? {}
+
+  // Rows one expanded category/sheet will render.
+  // On a large file the server already sampled the payload, so its own
+  // samples_per_group IS the ceiling — quoting anything higher would promise
+  // rows that were never sent. On an unsampled report every finding arrived,
+  // so we still cap rendering: thousands of rows in one expand freeze the tab.
+  const groupRowCap = report?.findings_truncated
+    ? (report.samples_per_group ?? GROUP_RENDER_CAP)
+    : GROUP_RENDER_CAP
 
   // The complete CSV comes from the job store on the server: with very large
   // files the JSON response only carries the most severe findings. Fall back
@@ -52,7 +64,7 @@ export default function ResultsView({ report }) {
         <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
           This file produced <strong>{(report.findings_total ?? 0).toLocaleString()}</strong> findings.
           Every category and sheet is listed below with its true totals; expanding one shows its most
-          severe rows (up to 300). Use{' '}
+          severe rows (up to {groupRowCap.toLocaleString()}). Use{' '}
           <button className="underline font-semibold" onClick={() => setTab(3)}>Downloads</button>{' '}
           to get the complete findings CSV.
         </div>
@@ -77,8 +89,8 @@ export default function ResultsView({ report }) {
           </div>
 
           <div className="p-5">
-            {activeTab === 0 && <FindingsByCategory findings={report.findings} summaries={report.category_counts} />}
-            {activeTab === 1 && <FindingsBySheet    findings={report.findings} summaries={report.sheet_counts} />}
+            {activeTab === 0 && <FindingsByCategory findings={report.findings} summaries={report.category_counts} maxRows={groupRowCap} />}
+            {activeTab === 1 && <FindingsBySheet    findings={report.findings} summaries={report.sheet_counts}    maxRows={groupRowCap} />}
             {activeTab === 2 && <FindingsTable      findings={report.findings} />}
             {activeTab === 3 && (
               <div className="space-y-4">

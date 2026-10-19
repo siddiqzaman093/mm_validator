@@ -345,6 +345,9 @@ class ValidationReport:
             "elapsed_ms": self.elapsed_ms,
             "findings_total": len(self.findings),
             "findings_truncated": len(shipped) < len(self.findings),
+            # What a truncated payload actually carries per category, so the
+            # UI never has to hard-code a second copy of this number.
+            "samples_per_group": self.SAMPLES_PER_GROUP,
             # True totals for every category/sheet so the UI can list ALL
             # groups even when only samples of their rows are shipped.
             "category_counts": self._group_counts(lambda f: f.category),

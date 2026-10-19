@@ -72,20 +72,7 @@ export async function login(username, password) {
   return res.data // { access_token, token_type }
 }
 
-// ---- Validate ----
-export async function validateFile({ file, lookupFile, useAi, apiKey, model, provider }) {
-  const form = new FormData()
-  form.append('file', file)
-  if (lookupFile) form.append('lookup_file', lookupFile)
-  form.append('use_ai', String(useAi))
-  form.append('api_key', apiKey || '')
-  form.append('model', model || 'claude-haiku-4-5')
-  form.append('provider', provider || 'anthropic')
-  const res = await client.post('/api/validate', form)
-  return res.data // ValidationReport JSON + html_report
-}
-
-// ---- Background validation jobs ----
+// ---- Validation jobs ----
 // Submit returns immediately with a job id; the validation runs server-side
 // and survives dropped connections, closed tabs and server restarts.
 export async function submitJob({ file, lookupFile, useAi, model, provider }) {

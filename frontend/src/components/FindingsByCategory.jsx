@@ -1,18 +1,21 @@
 import { useState } from 'react'
 import SeverityBadge from './SeverityBadge'
 
-// Rendering thousands of table rows in one expand freezes the tab on huge
-// files — show the sampled rows and point at the complete CSV download.
-const MAX_ROWS_SHOWN = 300
+// Rows rendered inside one expanded group. ResultsView owns the number — it
+// is the server's own samples_per_group on a sampled report, and a plain
+// render guard otherwise (thousands of rows in one expand freeze the tab).
+// The default here only applies if a caller omits the prop.
+const DEFAULT_MAX_ROWS = 300
 
-function CategoryGroup({ category, findings, summary }) {
+function CategoryGroup({ category, findings, summary, maxRows }) {
   const [open, setOpen] = useState(false)
+  const cap = maxRows ?? DEFAULT_MAX_ROWS
   // True totals come from the server summary (covers ALL findings); fall back
   // to counting the shipped rows for small files / older responses.
   const errorCount   = summary?.error   ?? findings.filter(f => f.severity === 'error').length
   const warningCount = summary?.warning ?? findings.filter(f => f.severity === 'warning').length
   const total        = summary?.total   ?? findings.length
-  const shown        = Math.min(findings.length, MAX_ROWS_SHOWN)
+  const shown        = Math.min(findings.length, cap)
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden">
@@ -47,7 +50,7 @@ function CategoryGroup({ category, findings, summary }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {findings.slice(0, MAX_ROWS_SHOWN).map((f, i) => (
+              {findings.slice(0, cap).map((f, i) => (
                 <tr key={i} className="hover:bg-slate-50 transition-colors">
                   <td className="px-3 py-2"><SeverityBadge severity={f.severity} /></td>
                   <td className="px-3 py-2 text-xs font-mono text-slate-500">{f.sheet}</td>
@@ -73,7 +76,7 @@ function CategoryGroup({ category, findings, summary }) {
   )
 }
 
-export default function FindingsByCategory({ findings, summaries }) {
+export default function FindingsByCategory({ findings, summaries, maxRows }) {
   const groups = {}
   for (const f of findings) {
     if (!groups[f.category]) groups[f.category] = []
@@ -93,6 +96,7 @@ export default function FindingsByCategory({ findings, summaries }) {
           key={cat}
           category={cat}
           findings={groups[cat] ?? []}
+          maxRows={maxRows}
           summary={byName[cat]}
         />
       ))}
